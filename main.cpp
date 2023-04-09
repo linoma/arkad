@@ -1,12 +1,12 @@
-#include "cps3.h"
+#include "arkad.h"
 #include "gui.h"
 #include "cps3m.h"
 #include "utils.h"
 
 GUI gui;
-Machine *machine=NULL;
-u32 __cycles;
-int _error_level=8;//LOGLEVEL;
+IMachine *machine=NULL;
+u32 __cycles,__data;
+int _error_level=0;//LOGLEVEL;
 ICore *cpu=NULL;
 
 int main(int argc, char *argv[]){
@@ -18,7 +18,8 @@ int main(int argc, char *argv[]){
 
 	gui.LoadBinary("");
 	gui.Loop();
-	delete machine;
+	if(machine)
+		delete machine;
 
 	return 0;
 }
@@ -93,6 +94,17 @@ extern "C" gboolean on_scroll_change(GtkRange *range,GtkScrollType scroll,gdoubl
 	if(!GTK_IS_SCROLLBAR(range))
 		range = (GtkRange *)gtk_bin_get_child((GtkBin *)range);
 	gui.OnScroll(id,GTK_WIDGET(range),scroll);
+	return FALSE;
+}
+
+extern "C" gboolean on_change_page (GtkNotebook *notebook,gint arg1, gpointer user_data){
+	gchar *name = (gchar *)gtk_widget_get_name(GTK_WIDGET(notebook));
+	u32 id = atoi(name);
+
+	GdkEvent *e=gtk_get_current_event();
+	gui.OnCommand(id,e->type,GTK_WIDGET(notebook));
+	if(e)
+		gdk_event_free(e);
 	return FALSE;
 }
 
