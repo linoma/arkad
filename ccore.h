@@ -139,6 +139,7 @@ protected:
 	std::vector<u64> _bk;
 	char *_filename;
 	CoreMACallback *_portfnc_write,*_portfnc_read;
+	u8 *_mem,*_regs;
 };
 
 #endif

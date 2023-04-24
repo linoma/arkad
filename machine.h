@@ -14,6 +14,7 @@ public:
 	virtual int Reset();
 	virtual int Exec(u32)=0;
 	virtual int Load(char *)=0;
+	virtual int Redraw()=0;
 protected:
 	u8 *_memory;
 	u32 _memsize;

@@ -25,12 +25,14 @@ typedef u32 DWORD;
 typedef void *LPVOID;
 
 typedef struct __IMachine{
-	virtual int OnIRQ(u32,void *)=0;
+	virtual int FireEvent(u32,void *)=0;
 	virtual int Draw(cairo_t *)=0;
 	virtual int Exec(u32)=0;
 	virtual int Load(char *)=0;
 	virtual int Destroy()=0;
 	virtual int Init()=0;
+	virtual int Redraw()=0;
+	virtual int MoveWindow(int,int,int,int)=0;
 } IMachine;
 
 #define NOARG
@@ -53,6 +55,7 @@ typedef struct __IMachine{
 #define MB(a) (KB(a)*1024)
 #define BVT(a,b) BT(a,BV(b))
 #define BVC(a,b) BC(a,BV(b))
+#define BVS(a,b) BS(a,BV(b))
 
 #define AWORD(a,b) *((u32 *)&((u8 *)a)[b])
 #define AHWORD(a,b) *((u16 *)&((u8 *)a)[b])
@@ -83,7 +86,6 @@ extern IMachine *machine;
 extern "C" {
 #endif
 
-void _log_printf(int level,const char *fmt,...);
 void on_menuiteem_select(GtkMenuItem* item,gpointer user_data);
 gboolean on_mouse_down (GtkWidget* self, GdkEventButton *event,gpointer user_data);
 void on_menu_init (GtkWidget  *item, GtkWidget *p,  gpointer   user_data);
@@ -94,24 +96,11 @@ void on_command(GtkWidget* item,gpointer user_data);
 }
 #endif
 
+int isDebug(u64);
 void EnterDebugMode(u64 v=0);
 void OnMemoryUpdate(u32 a,u32 b);
+void _log_printf(int level,const char *fmt,...);
 
-#ifdef _DEBUG
-	#ifndef LOGLEVEL
-		#define LOGLEVEL	9
-	#endif
-	#define DEVF(fmt,...) LOG(16,(fmt),## __VA_ARGS__)
-
-	#define ONMEMORYUPDATE(a,c)	OnMemoryUpdate((a),c)
-#else
-	#define DEVF(fmt,...)
-	#ifndef LOGLEVEL
-		#define LOGLEVEL	5
-	#endif
-
-	#define ONMEMORYUPDATE(a,c)
-#endif
 
 #define LOG(level,fmt,...) _log_printf(level,(fmt),## __VA_ARGS__)
 #define LOGV(fmt,...) LOG(1,(fmt),## __VA_ARGS__)
@@ -125,5 +114,22 @@ void OnMemoryUpdate(u32 a,u32 b);
 
 #define EXIT(fmt,...) printf((fmt),## __VA_ARGS__);exit(-1);
 
+#ifdef _DEBUG
+	#ifndef LOGLEVEL
+		#define LOGLEVEL	9
+	#endif
+	#define DEVF(fmt,...) LOG(16,(fmt),## __VA_ARGS__)
+	#define LOGF(fmt,...) LOG(isDebug(DEBUG_LOG_DEV) ? -1 : 4,(fmt),## __VA_ARGS__)
+
+	#define ONMEMORYUPDATE(a,c)	OnMemoryUpdate((a),c)
+#else
+	#define DEVF(fmt,...)
+	#define LOGF(fmt,...)
+	#ifndef LOGLEVEL
+		#define LOGLEVEL	5
+	#endif
+
+	#define ONMEMORYUPDATE(a,c)
+#endif
 
 #endif

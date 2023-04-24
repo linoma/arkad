@@ -6,7 +6,7 @@
 GUI gui;
 IMachine *machine=NULL;
 u32 __cycles,__data;
-int _error_level=0;//LOGLEVEL;
+int _error_level=1;//LOGLEVEL;
 ICore *cpu=NULL;
 
 int main(int argc, char *argv[]){
@@ -24,8 +24,11 @@ int main(int argc, char *argv[]){
 	return 0;
 }
 
-extern "C" void on_destroy(){
-	gui.Quit();
+extern "C" gboolean on_destroy(GtkWidget *widget,GdkEvent  *event, gpointer   user_data){
+	gchar *name = (gchar *)gtk_widget_get_name(GTK_WIDGET(widget));
+	u32 id = atoi(name);
+	gui.OnCloseWWindow(id,widget);
+	return  0;
 }
 
 extern "C" gboolean on_paint (GtkWidget* self,cairo_t* cr,gpointer user_data){
@@ -116,12 +119,17 @@ void OnMemoryUpdate(u32 a,u32 b){
 	gui.OnMemoryUpdate(a,b);
 }
 
+int isDebug(u64 v){
+	u64 vv = gui._getStatus();
+	return BT(vv,v) !=0;
+}
+
 void _log_printf(int level,const char *fmt,...){
 	va_list arg;
 	FILE *fp;
 
 	fp = level < 0 ? stderr : stdout;
-	fp=stdout;
+	//fp=stdout;
 	level = abs(level);
 	va_start(arg, fmt);
     if (level > _error_level)
@@ -129,6 +137,7 @@ void _log_printf(int level,const char *fmt,...){
     fprintf(fp,"%u ",GetTickCount());
     vfprintf(fp, fmt, arg);
     va_end(arg);
+    fflush(fp);
 A:
 	va_start(arg, fmt);
 	gui.putf(level,fmt,arg);
