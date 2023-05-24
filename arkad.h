@@ -24,18 +24,42 @@ typedef unsigned long LONG;
 typedef u32 DWORD;
 typedef void *LPVOID;
 
-typedef struct __IMachine{
-	virtual int FireEvent(u32,void *)=0;
+typedef struct __IGame : IObject{
+	virtual int Open(char *)=0;
+	virtual int Close()=0;
+	virtual int Read(void *,u32,u32 *)=0;
+	virtual int Seek(s64,u32)=0;
+} IGame;
+
+#define MACHINE_EVENT(a) (0x80000000|(a))
+
+typedef struct __IMachine {
+	virtual int OnEvent(u32,...)=0;
 	virtual int Draw(cairo_t *)=0;
+
 	virtual int Exec(u32)=0;
-	virtual int Load(char *)=0;
+	virtual int Load(IGame *,char *)=0;
 	virtual int Destroy()=0;
 	virtual int Init()=0;
-	virtual int Redraw()=0;
-	virtual int MoveWindow(int,int,int,int)=0;
 } IMachine;
 
+
 #define NOARG
+#define STR_IMPL_(x) #x
+#define STR(x) STR_IMPL_(x)
+#define RES(x) STR(x)
+
+#ifdef __WIN32__
+	#define DPC_PATH '\\'
+	#define DPS_PATH STR(\\)
+	#define DPC_PATH_INVERSE '/'
+	#define DPS_PATH_INVERSE "/"
+#else
+	#define DPC_PATH '/'
+	#define DPS_PATH STR(/)
+	#define DPC_PATH_INVERSE '\\'
+	#define DPS_PATH_INVERSE "\\"
+#endif
 
 #define MAKEWORD(a,b) (((b)<<16)|(a))
 #define MAKEHWORD(a,b) (((b)<<8)|(a))
@@ -43,6 +67,8 @@ typedef struct __IMachine{
 
 #define LOWORD(a) ((u16)a)
 #define HIWORD(a) ((u16)SR(a,16))
+#define HIBYTE(a) ((u8)SR(a,8))
+#define LOBYTE(a) ((u8)a)
 
 #define SR(a,b) ((a)>>(b))
 #define SL(a,b) ((a)<<(b))
@@ -61,8 +87,8 @@ typedef struct __IMachine{
 #define AHWORD(a,b) *((u16 *)&((u8 *)a)[b])
 #define ABYTE(a,b) *((u8 *)&((u8 *)a)[b])
 
-#define HIWORD(a) ((u16)SR(a,16))
-#define LOWORD(a) ((u16)a)
+#define RGB(a,b,c) (SL((u8)c,16)|SL((u8)b,8)|(u8)a)
+#define RGB555(a,b,c) (SL(c,10)|SL(b,5)|a)
 
 #define S_QUIT			BV(0)
 #define S_INIT			BV(1)
@@ -80,7 +106,6 @@ extern int _error_level;
 extern ICore *cpu;
 extern IMachine *machine;
 
-//typedef int(*CoreCallback)(int);
 
 #ifdef __cplusplus
 extern "C" {
@@ -107,10 +132,6 @@ void _log_printf(int level,const char *fmt,...);
 #define LOGI(fmt,...) LOG(2,(fmt),## __VA_ARGS__)
 #define LOGD(fmt,...) LOG(4,(fmt),## __VA_ARGS__)
 #define LOGE(fmt,...) LOG(8,(fmt),## __VA_ARGS__)
-
-#define STR_IMPL_(x) #x      //stringify argument
-#define STR(x) STR_IMPL_(x)
-#define RES(x) STR(x)
 
 #define EXIT(fmt,...) printf((fmt),## __VA_ARGS__);exit(-1);
 

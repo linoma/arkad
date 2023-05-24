@@ -15,11 +15,13 @@ int main(int argc, char *argv[]){
 	freopen ("myfile.txt","w",stderr);
     gtk_init(&argc, &argv);
 	gui.Init();
-
-	gui.LoadBinary("");
+#ifdef _DEVELOPa
+	gui.LoadBinary("roms/m68k/lino.bin");
+#endif
 	gui.Loop();
+
 	if(machine)
-		delete machine;
+		machine->Destroy();
 
 	return 0;
 }
@@ -28,7 +30,7 @@ extern "C" gboolean on_destroy(GtkWidget *widget,GdkEvent  *event, gpointer   us
 	gchar *name = (gchar *)gtk_widget_get_name(GTK_WIDGET(widget));
 	u32 id = atoi(name);
 	gui.OnCloseWWindow(id,widget);
-	return  0;
+	return 1;
 }
 
 extern "C" gboolean on_paint (GtkWidget* self,cairo_t* cr,gpointer user_data){
@@ -60,6 +62,13 @@ extern "C" gboolean on_mouse_down (GtkWidget* self, GdkEventButton *event,gpoint
 	else if(event->button==1)
 		gui.OnLButtonDown(id,self);
 	return 0;
+}
+
+extern "C" void on_show_menu (GtkMenuToolButton* self,  gpointer user_data){
+	gchar *name = (gchar *)gtk_widget_get_name(GTK_WIDGET(self));
+	u32 id = atoi(name);
+	GtkWidget *w = gtk_menu_tool_button_get_menu(self);
+	printf("mii %u %p\n",id,w);
 }
 
 extern "C" void on_menu_init (GtkWidget  *item, GtkWidget *p,  gpointer   user_data){
@@ -109,6 +118,14 @@ extern "C" gboolean on_change_page (GtkNotebook *notebook,gint arg1, gpointer us
 	if(e)
 		gdk_event_free(e);
 	return FALSE;
+}
+
+extern "C" gboolean on_key_event (GtkWidget* self,GdkEventKey event,  gpointer user_data){
+	if(event.type==GDK_KEY_PRESS)
+		return gui.OnKeyDown(self,event.keyval,event.state);
+	if(event.type==GDK_KEY_RELEASE)
+		return gui.OnKeyUp(self,event.keyval,event.state);
+	return 0;
 }
 
 void EnterDebugMode(u64 v){

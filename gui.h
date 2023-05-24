@@ -1,11 +1,12 @@
 #include "arkad.h"
 #include "debugger.h"
 #include "utils.h"
+#include "game.h"
 
 #ifndef __GUIH__
 #define __GUIH__
 
-class GUI : public DebugWindow{
+class GUI : public DebugWindow,private GameManager{
 public:
 	GUI();
 	virtual ~GUI();
@@ -32,9 +33,11 @@ public:
 	int OnCloseWWindow(u32,GtkWidget *);
 protected:
 	static gint OnKeyEvent(GtkWidget *w,GdkEventKey *event,gpointer func_data);
+	int Load(u32,char *);
 private:
 	guint key_snooper;
 	GtkWidget *_window;
+	u16 _keys[20];
 };
 
 #endif

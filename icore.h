@@ -5,6 +5,7 @@ typedef unsigned char u8;
 typedef unsigned short u16;
 typedef unsigned int u32;
 typedef unsigned long u64;
+typedef signed long s64;
 typedef signed char s8;
 typedef signed short s16;
 typedef signed int s32;
@@ -33,7 +34,7 @@ struct _timerobj;
 
 typedef struct _timerobj{
 	ICpuTimerObj *obj;
-	u32 elapsed;
+	u32 elapsed,cyc;
 	struct _timerobj *last,*next;
 } CPUTIMEROBJ,*LPCPUTIMEROBJ;
 
@@ -71,12 +72,34 @@ typedef struct{
 			u64 res;
 		};
 	};
-
 	union{
 		char name[20];
 		u32 id;
 	};
 } DEBUGGERPAGE,*LPDEBUGGERPAGE;
+
+class Runnable{
+public:
+	Runnable();
+	Runnable(int);
+	virtual ~Runnable();
+	virtual void OnRun()=0;
+	virtual int Create();
+	virtual int Destroy();
+	virtual void Run();
+protected:
+	void _set_time(u32);
+	u32 _cr;
+private:
+	u64 _status;
+	u32 _sleep;
+	pthread_t _thread;
+
+	static void *thread1_func(void *data){
+		((Runnable *)data)->Run();
+		return NULL;
+	};
+};
 
 #define IDEVICE_OK			0
 #define IDEVICE_CONNECTED	5
@@ -100,6 +123,7 @@ typedef struct{
 #define ICORE_QUERY_FILENAME			20
 #define ICORE_QUERY_FILE_EXT			21
 #define ICORE_QUERY_CPU_INFO			22
+#define ICORE_QUERY_ADD_WAITABLE_OBJ	80
 
 #define ICORE_QUERY_DBG_PAGE			0x101
 #define ICORE_QUERY_DBG_PAGE_INFO		0x104
@@ -108,6 +132,9 @@ typedef struct{
 
 #define ICORE_QUERY_DBG_DUMP_ADDRESS	0x122
 #define ICORE_QUERY_DBG_DUMP_FORMAT		0x123
+
+#define ICORE_QUERY_DBG_MENU			0x180
+#define ICORE_QUERY_DBG_MENU_SELECTED	0x181
 
 #define ICORE_QUERY_GPIO_PINS			0x201
 #define ICORE_QUERY_GPIO_STATUS			0x202
@@ -143,11 +170,11 @@ typedef struct{
 #define DEBUG_BREAK_OPCODE	0x1000000000000000
 #define DEBUG_LOG_DEV		0x0100000000000000
 
-#define AM_BYTE		0x20
-#define AM_WORD 	0x10
-#define AM_DWORD 	8
+#define AM_BYTE		0x40
+#define AM_WORD 	0x20
+#define AM_DWORD 	0x10
 #define AM_READ 	0
-#define AM_WRITE 	1
+#define AM_WRITE 	0x1
 
 
 #endif

@@ -64,7 +64,7 @@ u32 _log2(u32 val){
 }
 
 GtkWidget* GetDlgItem(GtkWidget* parent, const gchar* name){
-	if(!parent)
+	if(!parent || !GTK_IS_WIDGET(parent))
 		return 0;
 	gchar *s=(gchar *)gtk_widget_get_name((GtkWidget*)parent);
 	//if(s) printf("gi: %s\n",s);
@@ -185,16 +185,16 @@ int beep(int freq,int duration,int vol){
 		return -1;
 	res=-2;
 	buf=NULL;
-    if ((err = snd_pcm_set_params(handle,SND_PCM_FORMAT_U8,SND_PCM_ACCESS_RW_INTERLEAVED,
-                      1,11025,1, 500000)) < 0) goto A;
+    if ((err = snd_pcm_set_params(handle,SND_PCM_FORMAT_U8,SND_PCM_ACCESS_RW_INTERLEAVED,1,11025,1, 500000)) < 0)
+		goto A;
 	i=11025.0f / freq;
-	if(!(buf= new char[11025]))
+	if(!(buf= new char[12025]))
 		goto A;
 	vol = std::max(255,vol);
    while(duration){
 	   int x,n,m = std::min(duration,1000);
 	   duration -= m;
-	   x = (11.025f*m)-i;
+		x = (11.025f*m)-i;
 	   	for(n=0;n<=x;){
 			int ii;
 
@@ -208,6 +208,7 @@ int beep(int freq,int duration,int vol){
 		//printf("%d %d %d dur:%d\n",n,i,x,m);
 		for(x=n;x<11025;x++)
 			buf[x]=0;
+
         frames = snd_pcm_writei(handle, buf, n);
         if (frames < 0)
             frames = snd_pcm_recover(handle, frames, 0);
@@ -220,7 +221,7 @@ int beep(int freq,int duration,int vol){
     }
 	res=0;
 A:
-	err = snd_pcm_drain(handle);
+	//err = snd_pcm_drain(handle);
     snd_pcm_close(handle);
     if(buf)
 		delete []buf;

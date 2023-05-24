@@ -29,8 +29,9 @@
 if(_tobj._edge && (_tobj._cyc+=ret) >= _tobj._edge){\
 	LPCPUTIMEROBJ p=_tobj._first;\
 	while(p){\
-		LPCPUTIMEROBJ pp =p->next;\
-		int i = p->obj->Run(b,_tobj._cyc);\
+		LPCPUTIMEROBJ pp = p->next;\
+		int i = p->obj->Run(b,_tobj._cyc-p->cyc);\
+		p->cyc=0;\
 		if(i<0)\
 			DelTimerObj(p->obj);\
 		else if(i)\
@@ -39,7 +40,7 @@ if(_tobj._edge && (_tobj._cyc+=ret) >= _tobj._edge){\
 	}\
 	while(_tobj._cyc>=_tobj._edge)\
 		_tobj._cyc-=_tobj._edge;\
-	}
+}
 
 #define ISMEMORYBREAKPOINT(a) ((SR(a,32) & 0x8007) == 0x8007)
 #define BK_VALUE(a,b,c) \
@@ -108,9 +109,13 @@ if(BT(a,S_DEBUG) && !BT(a,S_DEBUG_NEXT)){\
 		if((b)v != _pc)\
 			continue;\
 		CHECKBREAKPOINT();\
-		return 2;\
+		return -2;\
 	}\
 }
+
+
+#define __S(a,...)	sprintf(cc,STR(%s) STR(\x20) STR(a),## __VA_ARGS__);
+#define __F(a,...) printf(STR(%08X %04X %s) STR(\x20) STR(a) STR(\n),_pc,_opcode,## __VA_ARGS__);
 
 class CCore : public ICore{
 public:
@@ -118,11 +123,12 @@ public:
 	virtual ~CCore();
 	virtual int Reset();
 	virtual int Destroy();
-
+	virtual int _exec(u32)=0;
 	int AddTimerObj(ICpuTimerObj *obj,u32 _elapsed=0,char *n=0);
 	int DelTimerObj(ICpuTimerObj *obj);
 	char *_getFilename(char *p=NULL){return _filename;};
 	virtual int Query(u32,void *);
+	virtual int Exec(u32);
 	virtual int _dumpMemory(char *p,u8 *mem,u32 adr,u32 sz=0x400);
 protected:
 	int DestroyWaitableObject();
@@ -134,7 +140,7 @@ protected:
 		LPCPUTIMEROBJ _first;
 	} _tobj;
 
-	u32 _cr,_pc,_dumpAddress,_dumpMode,_lastAccessAddress;
+	u32 _cr,_pc,_dumpAddress,_dumpMode,_lastAccessAddress,_freq;
 	std::vector<u32> _cstk;
 	std::vector<u64> _bk;
 	char *_filename;
