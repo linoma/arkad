@@ -11,6 +11,28 @@ typedef signed short s16;
 typedef signed int s32;
 typedef void *pvoid;
 
+#define SR(a,b) ((a)>>(b))
+#define SL(a,b) ((a)<<(b))
+
+#define BV(a) SL(1,(a))
+#define BC(a,b) ((a) &= ~(b))
+#define BS(a,b) ((a) |= (b))
+#define BT(a,b) ((a) & (b))
+
+#define BVT(a,b) BT(a,BV(b))
+#define BVC(a,b) BC(a,BV(b))
+#define BVS(a,b) BS(a,BV(b))
+
+#define S_QUIT			BV(0)
+#define S_INIT			BV(1)
+#define S_RUN			BV(2)
+#define S_PAUSE			BV(3)
+#define S_DEBUG_NEXT 	BV(4)
+
+#define S_DEBUG			BV(8)
+#define S_LOAD			BV(16)
+#define S_DEBUG_UPDATE	BV(17)
+
 typedef struct{
 	virtual int Query(u32,void *) = 0;
 } IObject;
@@ -18,8 +40,7 @@ typedef struct{
 typedef struct : IObject{
 	virtual int Exec(u32) = 0;
 	virtual int Dump(char **)=0;
-	//virtual int Disassemble(char *,u32 *)=0;
-	virtual int Init()=0;
+	virtual int Init(void *)=0;
 	virtual int Destroy()=0;
 	//virtual int Load(char *)=0;
 	virtual int Reset()=0;
@@ -87,6 +108,14 @@ public:
 	virtual int Create();
 	virtual int Destroy();
 	virtual void Run();
+	void addStatus(u64 v){_status |= v;};
+	int hasStatus(u64 v){return (_status & v) != 0;};
+	void clearStatus(u64 v){_status &=  ~v;}
+	enum : u32{
+		QUIT=S_QUIT,
+		PLAY=S_RUN,
+		PAUSE=S_PAUSE
+	};
 protected:
 	void _set_time(u32);
 	u32 _cr;
@@ -112,6 +141,9 @@ private:
 #define ICORE_QUERY_MEMORY_INFO			41
 #define ICORE_QUERY_MEMORY_ACCESS		40
 #define ICORE_QUERY_MEMORY_FIND			42
+#define ICORE_QUERY_CPUS				50
+#define ICORE_QUERY_CPU_INTERFACE		55
+#define ICORE_QUERY_CPU_ACTIVE_INDEX	566
 #define ICORE_QUERY_ADDRESS_INFO		12
 #define ICORE_QUERY_CPU_FREQ			13
 #define ICORE_QUERY_OPCODE				14
@@ -122,23 +154,24 @@ private:
 #define ICORE_QUERY_DUMP				19
 #define ICORE_QUERY_FILENAME			20
 #define ICORE_QUERY_FILE_EXT			21
-#define ICORE_QUERY_CPU_INFO			22
+#define ICORE_QUERY_CPU_MEMORY			22
+#define ICORE_QUERY_CPU_STATUS			23
 #define ICORE_QUERY_ADD_WAITABLE_OBJ	80
 
-#define ICORE_QUERY_DBG_PAGE			0x101
-#define ICORE_QUERY_DBG_PAGE_INFO		0x104
-#define ICORE_QUERY_DBG_PAGE_EVENT		0x105
+#define ICORE_QUERY_DBG_PAGE				0x101
+#define ICORE_QUERY_DBG_PAGE_INFO			0x104
+#define ICORE_QUERY_DBG_PAGE_EVENT			0x105
 #define ICORE_QUERY_DBG_PAGE_COORD_TO_ADDRESS		0x106
 
-#define ICORE_QUERY_DBG_DUMP_ADDRESS	0x122
-#define ICORE_QUERY_DBG_DUMP_FORMAT		0x123
+#define ICORE_QUERY_DBG_DUMP_ADDRESS		0x122
+#define ICORE_QUERY_DBG_DUMP_FORMAT			0x123
 
-#define ICORE_QUERY_DBG_MENU			0x180
-#define ICORE_QUERY_DBG_MENU_SELECTED	0x181
+#define ICORE_QUERY_DBG_MENU				0x180
+#define ICORE_QUERY_DBG_MENU_SELECTED		0x181
 
-#define ICORE_QUERY_GPIO_PINS			0x201
-#define ICORE_QUERY_GPIO_STATUS			0x202
-#define ICORE_QUERY_GPIO_STATUS			0x202
+#define ICORE_QUERY_GPIO_PINS				0x201
+#define ICORE_QUERY_GPIO_STATUS				0x202
+
 
 #define ICORE_QUERY_BREAKPOINT_ENUM 	0xff01
 #define ICORE_QUERY_BREAKPOINT_ADD		0xff02
@@ -159,7 +192,9 @@ private:
 #define ICORE_QUERY_SET_PC					0x1fe02
 #define ICORE_QUERY_SET_BREAKPOINT_STATE	0x1fe03
 #define ICORE_QUERY_BREAKPOINT_SET			0x1fe04
+#define ICORE_QUERY_SET_STATUS				0x1fe05
 
+#define ICORE_QUERY_SET_MACHINE				0x1Fe20
 #define ICORE_QUERY_SET_LOCATION			0x1fe15
 #define ICORE_QUERY_SET_LAST_ADDRESS		0x1fe17
 

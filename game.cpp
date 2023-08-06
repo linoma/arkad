@@ -105,6 +105,7 @@ int GameManager::Init(){
 	push_back(new sfiii3n());
 	push_back(new redearthr1());
 	push_back(new redearthn());
+	push_back(new blacktiger());
 	return 0;
 }
 
@@ -141,6 +142,7 @@ A:
 		*pg=i+1;
 	if(!pm || res)
 		goto B;
+
 	{
 		u32 m;
 
@@ -181,6 +183,11 @@ int GameManager::MachineIndexFromGame(IGame *p,u32 *i){
 		c[i]=tolower(c[i]);
 	if(!strcmp(c,"cps3")){
 		mi=0;
+		res=0;
+		goto A;
+	}
+	if(!strcmp(c,"blktiger")){
+		mi=1;
 		res=0;
 		goto A;
 	}
@@ -386,4 +393,21 @@ redearthn::redearthn() : redearthr1(){
 }
 
 redearthn::~redearthn(){
+}
+
+blacktiger::blacktiger() : FileGame(){
+	char c[][64]={
+"bdu-01a.5e","bdu-02a.6e","bdu-03a.8e","bd-04.9e","bd-05.10e",
+"bd-06.1l","bd.6k","bd-15.2n","bd-12.5b","bd-11.4b","bd-14.9b",
+"bd-13.8b","bd-08.5a","bd-07.4a","bd-10.9a","bd-09.8a","bd01.8j",
+"bd02.9j","bd03.11k","bd04.11l",};
+
+	_machine="blktiger";
+	_name="blktiger";
+
+	for(int i =0;i<sizeof(c)/64;i++)
+		_files.push_back({c[i],0});
+}
+
+blacktiger::~blacktiger(){
 }

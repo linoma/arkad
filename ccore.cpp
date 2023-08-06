@@ -1,11 +1,15 @@
 #include "ccore.h"
 
-CCore::CCore(){
+CCore::CCore(void *p){
 	_tobj._first=NULL;
 	_filename=NULL;
 	_portfnc_write=_portfnc_read=NULL;
 	_dumpMode=0;
 	_dumpAddress=0;
+	_machine=p;
+	_attributes=0;
+	_status=0;
+	InitializeCriticalSection(&_cr);
 }
 
 CCore::~CCore(){
@@ -14,14 +18,14 @@ CCore::~CCore(){
 int CCore::Exec(u32 status){
 	int ret;
 
+	if(BT(_status,1)) return 0;
 	EXECCHECKBREAKPOINT(status,u32);
 	ret = _exec(status);
-	__cycles+=ret;
-	if(/*f==0 || (m-f)>1000000 ||*/ __cycles > _freq){
-			//printf("elapsed %lu %u\n",m-f,__cycles);
-			//f=m;
-		__cycles -= __cycles < _freq ? __cycles : _freq;
-		//printf("__cycles %u\n",__cycles);
+
+	//fixme
+	_cycles += ret;
+	if(/*f==0 || (m-f)>1000000 ||*/ _cycles > _freq){
+		_cycles -= _cycles < _freq ? _cycles : _freq;
 		return -1;
 	}
 	return ret;
@@ -29,6 +33,47 @@ int CCore::Exec(u32 status){
 
 int CCore::Query(u32 what,void *pv){
 	switch(what){
+		case ICORE_QUERY_CPU_ACTIVE_INDEX:
+			if(_machine)
+				return ((IObject *)_machine)->Query(what,pv);
+			*((u32 *)pv)=0;
+			return 0;
+		case ICORE_QUERY_SET_STATUS:
+			_status = (_status & ~0xffffffff)|*((u32 *)pv);
+			return 0;
+		case ICORE_QUERY_NEXT_STEP:
+			if(_machine)
+				return ((IObject *)_machine)->Query(what,pv);
+			return -1;
+		case ICORE_QUERY_ADDRESS_INFO:
+			if(_machine)
+				return ((IObject *)_machine)->Query(what,pv);
+			return -1;
+		case ICORE_QUERY_SET_MACHINE:
+			_machine=pv;
+			return 0;
+		case ICORE_QUERY_CPU_FREQ:
+			*((u32 *)pv)=(u32)_freq;
+			return 0;
+		case ICORE_QUERY_CPUS:{
+			char *p = new char[200];
+			if(!p) return -1;
+			((void **)pv)[0]=p;
+			memset(p,0,200);
+			strcpy(p,"CPU 0");
+		}
+			return 0;
+		case ICORE_QUERY_CPU_INTERFACE:{
+			if(_machine)
+				return ((IObject *)_machine)->Query(what,pv);
+			u32 *p=(u32 *)pv;
+
+			if(!*p){
+				((void **)pv)[0]=this;
+				return 0;
+			}
+		}
+			return -1;
 		case ICORE_QUERY_SET_PC:
 			_pc=*((u32 *)pv);
 			return 0;
@@ -140,8 +185,6 @@ int CCore::Query(u32 what,void *pv){
 
 			}
 			p[0]=n;
-
-			return 0;
 		}
 			return 0;
 		case ICORE_QUERY_SET_BREAKPOINT_STATE:
@@ -169,10 +212,10 @@ int CCore::Query(u32 what,void *pv){
 			{
 				u32 i=0,*p=(u32 *)pv;
 				for (auto it = _bk.begin();it != _bk.end(); ++it,i++){
-						if(i==p[0]){
-							_bk.erase(it);
-							return 0;
-						}
+					if(i==p[0]){
+						_bk.erase(it);
+						return 0;
+					}
 				}
 			}
 			return -1;
@@ -185,9 +228,13 @@ int CCore::Query(u32 what,void *pv){
 		}
 			return 0;
 		case ICORE_QUERY_DBG_DUMP_ADDRESS:
+			if(_machine)
+				return ((IObject *)_machine)->Query(what,pv);
 			_dumpAddress=(u32)((u64)pv & 0xFFFFFFFF);
 			return 0;
 		case ICORE_QUERY_DBG_DUMP_FORMAT:
+			if(_machine)
+				return ((IObject *)_machine)->Query(what,pv);
 			_dumpMode=(u32)((u64)pv & 0xFFFFFFFF);
 			return 0;
 		case ICORE_QUERY_DISASSEMBLE:
@@ -195,6 +242,50 @@ int CCore::Query(u32 what,void *pv){
 				u64 *p=(u64 *)pv;
 				return Disassemble((char *)p[0],(u32 *)p[1]);
 			}
+		case ICORE_QUERY_CPU_MEMORY:
+			*((u64 *)pv)=(u64)_mem;
+			return 0;
+		case ICORE_QUERY_MEMORY_ACCESS:
+			{
+				int i=0;
+				u32 *p=(u32 *)pv;
+#ifdef _DEBUG
+				for (auto it = _bk.begin();it != _bk.end(); ++it){
+					u64 v=(u64)*it;
+					if(!(v&0x8000000000000000))
+						continue;
+					if((u32)v != *p)
+						continue;
+					u32 vv=SR(v,32);
+					if((vv&0x8007)!=0x8007)
+						continue;
+					u32 rs = 0;//rs = _regs[SR(vv,3)&0x1f];
+					u32 rd = SR(vv&0xf8,3);
+				/*	if(vv & 0x40000000)
+						rd |= SR(vv&0x0fffff00,3);
+					else
+						rd=((u32 *)_regs)[rd];*/
+					switch(SR(vv&0x30000000,28)){
+						case 0:
+							if((p[1] & 1))
+								continue;
+						break;
+						case 1:
+							if(!(p[1] & 1))
+								continue;
+						break;
+					}
+
+					switch(SR(vv,6)&0x3){
+					}
+
+					switch(SR(vv,3)&0x7){
+					}
+					return 2;
+				}
+#endif
+			}
+			return 0;
 		default:
 			return -1;
 	}
@@ -275,13 +366,18 @@ A:
 }
 
 int CCore::Reset(){
+	_cycles=0;
+	_status=0;
 	_cstk.clear();
 	_lastAccessAddress=(u32)-1;
+
 	_tobj._cyc=0;
-	_tobj._first=0;
-	_tobj._edge=0;
-	InitializeCriticalSection(&_cr);
-	DestroyWaitableObject();
+	ResetWaitableObject();
+	//fixme resetWaitableObject
+	//_tobj._first=0;
+	//_tobj._edge=0;
+	//DestroyWaitableObject();
+
 	ResetBreakpoint();
 	return 0;
 }
@@ -294,12 +390,32 @@ int CCore::Destroy(){
 	return 0;
 }
 
+int CCore::_dumpCallstack(char *p){
+	char *cc,pp[1024];
+
+	cc=&pp[768];
+	*((u64 **)pp)=0;
+	for (auto it = _cstk.rbegin();it != _cstk.rend(); ++it){
+		*cc=0;
+		sprintf(cc,"%08x\n",*it);
+		strcat(p,cc);
+	}
+	return 0;
+}
+
+int CCore::_dumpRegisters(char *p){
+	sprintf(p,"PC: %08X",_pc);
+	return 0;
+}
+
 int CCore::_dumpMemory(char *p,u8 *mem,u32 adr,u32 sz){
 	char *cc,pp[1024];
 	u32 i,n;
 
 	cc=&pp[768];
 	*((u64 **)pp)=0;
+	if(!mem)
+		mem=&_mem[adr];
 	if(!mem)
 		return 0;
 	for(i=0;i<sz;i++){
@@ -358,6 +474,17 @@ int CCore::DestroyWaitableObject(){
 	return 0;
 }
 
+int CCore::ResetWaitableObject(){
+	if(_tobj._first){
+		LPCPUTIMEROBJ p=_tobj._first;
+		while(p){
+			p->cyc=0;
+			p=p->next;
+		}
+	}
+	return 0;
+}
+
 void CCore::ResetBreakpoint(){
 	for (auto it = _bk.begin();it != _bk.end(); ++it){
 		u64 v=(u64)*it;
@@ -388,11 +515,10 @@ Runnable::~Runnable(){
 
 void Runnable::Run(){
 	//printf("runnable %u\n",_sleep);
-	while(!(_status & 1)){
+	while(!(_status & QUIT)){
 		usleep(_sleep);
 		OnRun();
 	}
-	printf("runnable destroyy\n");
 }
 
 void Runnable::_set_time(u32 n){
@@ -407,7 +533,8 @@ int Runnable::Create(){
 }
 
 int Runnable::Destroy(){
-	_status|=1;
+	_status |= QUIT;
+	_status&=~PLAY;
 	if(_thread){
 		pthread_join(_thread,0);
 		_thread=0;

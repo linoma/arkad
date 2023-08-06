@@ -4,14 +4,13 @@
 #include "resource.h"
 #include "blacktiger.h"
 #include "cps2m.h"
+#include <iostream>
 
 extern GUI gui;
 
-GUI::GUI() : DebugWindow(),GameManager(){
+GUI::GUI() : DebugWindow(),GameManager(),Settings(){
 	_window=NULL;
 	key_snooper = 0;
-	u16 a[]={GDK_KEY_Left,GDK_KEY_Right,GDK_KEY_Up,GDK_KEY_Down,'a','s','p','q','w','z','x'};
-	memcpy(_keys,a,sizeof(a));
 }
 
 GUI::~GUI(){
@@ -21,6 +20,7 @@ GUI::~GUI(){
 }
 
 void GUI::Loop(){
+	int ret;
 	while(!BT(_status,S_QUIT)){
 B:
 		if(!BT(DebugWindow::_status,S_RUN))
@@ -30,12 +30,11 @@ B:
 			if(DebugWindow::Loop())
 				goto C;
 		}
-		switch(machine->Exec(_status)){
+		switch((u16)(ret = machine->Exec(_status))){
 			case 0:
-
 			break;
 			case 2:
-				DebugMode(1);
+				DebugMode(1,0,SR(ret,28)&7);
 			case 1:
 			case 3:
 			default:
@@ -50,12 +49,15 @@ C:
 		while(PeekMessage(NULL))
 			DispatchMessage(NULL);
 	}
-
 	//pthread_join(thread1,NULL);
 }
 
 int GUI::Init(){
+	string s =_items.at("keys");
+	u16 *b = (u16 *)s.c_str();
+	memcpy(_keys,b,s.length());
 
+#ifndef __WIN32__
 	if(!(_window=CreateDialogFromResource("gui")))
 		return -1;
 	GtkWidget *w=CreateDialogFromResource("101");
@@ -64,21 +66,25 @@ int GUI::Init(){
 	gtk_widget_show_all(_window);
 	while(PeekMessage(0))
 		DispatchMessage(NULL);
-
+#endif
 	DebugWindow::Init(w);
 	GameManager::Init();
 	key_snooper = gtk_key_snooper_install(OnKeyEvent,this);
-
-	//ChangeCore(2);
+#ifdef _DEVELOP
+//	ChangeCore(1);
+	//LoadBinary("roms/m68k/lino.bin");
+	//LoadBinary("roms/z800/float.bin");
 
 	{
 		u32 m,g;
 		//char fileName[]={"roms/redearthnocd/redearthn_asia_nocd.29f400.u2"};
-		char fileName[]={"roms/redearth/redearth_euro.29f400.u2"};
-		//if(!Find(fileName,&g,NULL))
-		//	Load(g,fileName);
+		//char fileName[]={"roms/redearth/redearth_euro.29f400.u2"};
+		//char fileName[]={"roms/sfiii3_japan_nocd.29f400.u2"};
+		char fileName[]={"roms/blktiger/bdu-01a.5e"};
+		if(!Find(fileName,&g,NULL))
+			Load(g,fileName);
 	}
-
+#endif
 	while(PeekMessage(0))
 		DispatchMessage(NULL);
 	return 0;
@@ -87,9 +93,11 @@ int GUI::Init(){
 int GUI::LoadBinary(char *p){
 	machine->Load(NULL,p);
 	BS(_status,S_LOAD|S_RUN);//|S_DEBUG|S_PAUSE
+#ifdef _DEVELOP
 	DebugMode(1);
 	LoadBreakpoints();
     LoadNotes();
+#endif
 	return 0;
 }
 
@@ -107,6 +115,7 @@ int GUI::Load(u32 g,char *p){
 		if(MachineIndexFromGame((IGame *)gg,&mi))
 			return -2;
 	}
+
 	ChangeCore(mi);
 
 	if(machine->Load((IGame *)gg,p))
@@ -114,9 +123,13 @@ int GUI::Load(u32 g,char *p){
 	_game=g;
 
 	BS(_status,S_LOAD|S_RUN);//|S_DEBUG|S_PAUSE
+
+	_updateToolbar();
+#ifdef _DEVELOP
 	DebugMode(1);
 	LoadBreakpoints();
     LoadNotes();
+#endif
 	return 0;
 }
 
@@ -147,9 +160,20 @@ int GUI::ChangeCore(int c){
 		default:
 			return -1;
 	}
+
 	machine->Init();
 	_machine = c+1;
+
 	DebugWindow::OnEnableCore();
+
+	machine->LoadSettings((void * &)_items);
+
+	{
+		int w=stoi(_items["width"]);
+		int h=stoi(_items["height"]);
+		gtk_window_resize(GTK_WINDOW(_window),w,h);
+	//	printf("%s %d %d\n",__FUNCTION__,w,h);
+	}
 	Reset();
 	return 0;
 }
@@ -278,7 +302,7 @@ void GUI::OnButtonClicked(u32 id,GtkWidget *w){
 		{
 			char s[1024];
 
-			_game = 2;
+			//_game = 2;
 			if(_game){
 				IGame *p=at(_game-1);
 				p->Query(IGAME_GET_FILENAME,s);
@@ -300,7 +324,7 @@ void GUI::OnButtonClicked(u32 id,GtkWidget *w){
 				*((u64 *)fileName)=0;
 				*((u64 *)ext)=0;
 				if(!cpu || cpu->Query(ICORE_QUERY_FILE_EXT,ext) || !ext[0])
-					memcpy(ext,"All Files (*.*)\0*.*;\0\0\0\0",25);
+					memcpy(ext,"All Files (*.*)\0*.*;\0\0\0\0\0\0\0",26);
 
 				if(ShowOpen((char *)"Open Binary File",(char *)ext,_window,fileName,1,0)){
 					u32 m,g;
@@ -316,6 +340,9 @@ void GUI::OnButtonClicked(u32 id,GtkWidget *w){
 		case 5520:
 			if(machine)
 				machine->OnEvent(ME_REDRAW);
+		break;
+		case 5052:
+			Settings::Show(0);
 		break;
 		default:
 			DebugWindow::OnButtonClicked(id,w);
@@ -349,7 +376,9 @@ BOOL GUI::ShowOpen(char *caption,char *lpstrFilter,HWND hWndParent,char *fileNam
 
 	w = gtk_file_chooser_dialog_new(caption,(GtkWindow *)hWndParent,GTK_FILE_CHOOSER_ACTION_OPEN,"_Cancel",
 		GTK_RESPONSE_CANCEL,"_Open", GTK_RESPONSE_ACCEPT, NULL);
-	gtk_file_chooser_set_current_folder((GtkFileChooser *)w,fileName);
+	if(!w) return FALSE;
+	//if(*fileName)
+		gtk_file_chooser_set_current_folder((GtkFileChooser *)w,fileName);
 	*((long *)fileName) = 0;
 	if(lpstrFilter != NULL && lpstrFilter[0] != 0){
 		p = lpstrFilter;
@@ -439,7 +468,6 @@ void GUI::OnPopupMenuInit(u32 id,GtkMenuShell *menu){
 }
 
 void GUI::OnMenuItemSelect(u32 id,GtkMenuItem *item){
-	LOGD("mis: %d\n",id);
 	switch(id){
 		default:
 			if(id>0x10000){
@@ -455,7 +483,7 @@ void GUI::OnMenuItemSelect(u32 id,GtkMenuItem *item){
 			GtkWidget *dialog = gtk_about_dialog_new();
 			if(dialog){
 		//gtk_about_dialog_set_name(GTK_ABOUT_DIALOG(dialog), "Battery");
-				gtk_about_dialog_set_version(GTK_ABOUT_DIALOG(dialog), "1.0");
+				gtk_about_dialog_set_version(GTK_ABOUT_DIALOG(dialog), "1.1 beta");
 				gtk_about_dialog_set_copyright(GTK_ABOUT_DIALOG(dialog),"(c) Linoma 2022/2023");
 				gtk_about_dialog_set_comments(GTK_ABOUT_DIALOG(dialog), "arKad Emulator");
 				gtk_about_dialog_set_website(GTK_ABOUT_DIALOG(dialog), "https://www.arkademu.it");
@@ -479,4 +507,23 @@ void GUI::OnMenuItemSelect(u32 id,GtkMenuItem *item){
 		case 40101:
 		break;
 	}
+}
+
+int GUI::_updateToolbar(){
+	return 0;
+}
+
+void GUI::PushStatusMessage(char *ss){
+
+	char *p = new char[strlen(ss)+1];
+	strcpy(p,ss);
+	gdk_threads_add_idle(thread1_worker,p);
+}
+
+gboolean GUI::thread1_worker(gpointer data){
+		GtkWidget *w=GetDlgItem(gui._getWindow(),STR(7000));
+		if(w)
+			gtk_label_set_text(GTK_LABEL(w),(char *)data);
+		if(data) delete []((char *)data);
+		return FALSE;
 }

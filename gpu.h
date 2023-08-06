@@ -7,7 +7,7 @@ class GPU : public  ICpuTimerObj{
 public:
 	GPU();
 	virtual ~GPU();
-	virtual int Init(int,int,int,int);
+	virtual int Init(int,int,int ww=-1,int hh=-1,int wb=-1,int hb=-1);
 	virtual int Destroy();
 	virtual int Reset();
 	virtual int Draw(cairo_t* cr=NULL);

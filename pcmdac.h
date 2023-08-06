@@ -17,10 +17,11 @@ public:
 	virtual int Start();
 	virtual int Stop();
 protected:
-	virtual int Configure();
-	u32 _n_write,_elapsed,_resample_step,_frequency,_period_size;
+	virtual int _configure();
+	u32 _n_write,_elapsed,_resample_step,_frequency,_period_size,_n_read;
 private:
-	u16 *__samples;
+	void _reset();
+	u8 *__samples;
 	u32 _sz_samples,_pos_write,_pos_read,_channels;
 	snd_pcm_t *_handle;
 };

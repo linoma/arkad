@@ -115,16 +115,17 @@ GtkWidget *CreateDialogFromResource(const char *id,void *h){
 }
 
 void disable_gobject_callback(GObject *obj, GCallback cb,gboolean _block){
-  gulong hid;
+	gulong hid;
 
-  if (!obj || !cb) {
-    return;
-  }
-  hid = g_signal_handler_find(obj, G_SIGNAL_MATCH_FUNC,0, 0, NULL,(gpointer) cb, NULL);
-  if(_block)
-	g_signal_handler_block(obj, hid);
-else
-	g_signal_handler_unblock(obj, hid);
+	if (!obj || !cb) {
+		return;
+	}
+	if((hid = g_signal_handler_find(obj, G_SIGNAL_MATCH_FUNC,0, 0, NULL,(gpointer) cb, NULL))){
+		if(_block)
+			g_signal_handler_block(obj, hid);
+		else
+			g_signal_handler_unblock(obj, hid);
+	}
 }
 
 void FlashWindow(GtkWidget *hwnd,u32 uCount){
@@ -191,7 +192,7 @@ int beep(int freq,int duration,int vol){
 	if(!(buf= new char[12025]))
 		goto A;
 	vol = std::max(255,vol);
-   while(duration){
+	while(duration){
 	   int x,n,m = std::min(duration,1000);
 	   duration -= m;
 		x = (11.025f*m)-i;
@@ -226,4 +227,103 @@ A:
     if(buf)
 		delete []buf;
     return res;
+}
+
+int SaveBitmap(char *fn,int width,int height,int nc,int bp,u8 *data){
+	u8 *lpBits,*p,*p1;
+	BITMAPFILEHEADER hdr;
+	PBITMAPINFO pbmi;
+	PBITMAPINFOHEADER pbih;
+	int   res,i,n;
+	FILE *fp;
+
+	nc=0;
+	i=24;
+	if (i && i <= 4)
+		i = 4;
+	else if (i <= 8)
+		i = 8;
+	else if (i <= 16)
+		i = 16;
+	else if (i <= 24)
+		i = 24;
+	else
+		i = 32;
+
+	int stride = ((((width * 24) + 31) & ~31) >> 3);
+	n=(width + 7) / 8 * height * i;
+	res=sizeof(BITMAPINFOHEADER) + sizeof(RGBQUAD) * (2^i);
+	if(!(pbmi=(PBITMAPINFO)malloc(res+n+sizeof(void *)*2)))
+		return -1;
+	lpBits=(u8 *) ((u64)pbmi + res);
+	//printf("%lu %u %d %d %d %d\n",(u64)lpBits - (u64)pbmi,res,bp,stride,n,bp);
+	memset(pbmi,0,res);
+	fp=NULL;
+	res=-2;
+	pbih = &pbmi->bmiHeader;
+	pbih->biSize = sizeof(BITMAPINFOHEADER);
+	pbih->biWidth = width;
+	pbih->biHeight = -height;
+	pbih->biPlanes = 1;
+	pbih->biBitCount = 24;
+	pbih->biClrUsed = (i < 9 ? i : 0);
+	pbih->biCompression = 0;//BI_RGB;
+	pbih->biSizeImage = n;
+
+	hdr.bfType = 0x4d42;
+	hdr.bfSize = (u32) (sizeof(BITMAPFILEHEADER) + pbih->biSize + nc * sizeof(RGBQUAD) + pbih->biSizeImage);
+	hdr.bfReserved1 = 0;
+	hdr.bfReserved2 = 0;
+	hdr.bfOffBits = (u32) sizeof(BITMAPFILEHEADER) + pbih->biSize + nc * sizeof(RGBQUAD);
+
+	res--;
+	if(!(fp=fopen(fn,"wb")))
+		goto Z;
+	p = lpBits;
+	p1 = (u8 *)data;
+	switch(bp){
+		case 16:{
+			u8 *p2,*p3;
+
+			for(int y=0;y<height;y++){
+				p2 = p;
+				p3 = p1;
+				for(int x=0;x<width;x++,p3+=2,p2+=3){
+					int col = *((u16 *)p3);
+					p2[2] = SL(col&0x1f,3);
+					p2[1] = SR(col&0x3e0,2);
+					p2[0] = SR(col&0x7c00,7);
+				}
+				p += stride;
+				p1 += width*2;
+  			}
+		}
+		break;
+		case 24:{
+			u8 *p2,*p3;
+
+			for(int y=0;y<height;y++){
+				p2 = p;
+				p3 = p1;
+				for(int x=0;x<width;x++){
+					*p2++ = p3[2];
+					*p2++ = p3[1];
+					*p2++ = p3[0];
+					p3 += 3;
+				}
+				p += stride;
+				p1 += stride;
+  			}
+		}
+		break;
+	}
+	fwrite(&hdr,sizeof(BITMAPFILEHEADER),1,fp);
+	fwrite(pbih,sizeof(BITMAPINFOHEADER) + pbih->biClrUsed * sizeof (RGBQUAD),1,fp);
+	fwrite(lpBits,pbih->biSizeImage,1,fp);
+	res=0;
+Z:
+	free(pbmi);
+	if(fp)
+		fclose(fp);
+	return res;
 }

@@ -11,7 +11,7 @@
 	 while (!_cstk.empty()){\
 		u32 b =_cstk.back();\
 		_cstk.pop_back();\
-		if(b==a) break;\
+		if(b==(a)) break;\
 	}
 #else
 	#define STORECALLLSTACK(a)
@@ -34,8 +34,9 @@ if(_tobj._edge && (_tobj._cyc+=ret) >= _tobj._edge){\
 		p->cyc=0;\
 		if(i<0)\
 			DelTimerObj(p->obj);\
-		else if(i)\
+		else if(i){\
 			a;\
+		}\
 		p=pp;\
 	}\
 	while(_tobj._cyc>=_tobj._edge)\
@@ -103,7 +104,7 @@ else{\
 #define ISBREAKPOINTCOUNTER(a) ((a&0x800000000000)==0)
 
 #define EXECCHECKBREAKPOINT(a,b)\
-if(BT(a,S_DEBUG) && !BT(a,S_DEBUG_NEXT)){\
+if(BT(a,S_DEBUG) && !BT(a,S_DEBUG_NEXT)){printf("bbk\n");\
 	for (auto it = _bk.begin();it != _bk.end(); ++it){\
 		u64 v=(u64)*it;\
 		if((b)v != _pc)\
@@ -115,11 +116,11 @@ if(BT(a,S_DEBUG) && !BT(a,S_DEBUG_NEXT)){\
 
 
 #define __S(a,...)	sprintf(cc,STR(%s) STR(\x20) STR(a),## __VA_ARGS__);
-#define __F(a,...) printf(STR(%08X %04X %s) STR(\x20) STR(a) STR(\n),_pc,_opcode,## __VA_ARGS__);
+#define __F(a,...) 	printf(STR(%08X %04X %s) STR(\x20) STR(a) STR(\n),_pc,_opcode,## __VA_ARGS__);
 
 class CCore : public ICore{
 public:
-	CCore();
+	CCore(void *p=NULL);
 	virtual ~CCore();
 	virtual int Reset();
 	virtual int Destroy();
@@ -130,8 +131,11 @@ public:
 	virtual int Query(u32,void *);
 	virtual int Exec(u32);
 	virtual int _dumpMemory(char *p,u8 *mem,u32 adr,u32 sz=0x400);
+	virtual int _dumpRegisters(char *p);
+	virtual int _dumpCallstack(char *p);
 protected:
 	int DestroyWaitableObject();
+	int ResetWaitableObject();
 	void ResetBreakpoint();
 	virtual int Disassemble(char *dest,u32 *padr){return 0;};
 
@@ -140,12 +144,15 @@ protected:
 		LPCPUTIMEROBJ _first;
 	} _tobj;
 
-	u32 _cr,_pc,_dumpAddress,_dumpMode,_lastAccessAddress,_freq;
+	u32 _cycles,_cr,_pc,_dumpAddress,_dumpMode,_lastAccessAddress,_freq,_attributes;
 	std::vector<u32> _cstk;
 	std::vector<u64> _bk;
 	char *_filename;
 	CoreMACallback *_portfnc_write,*_portfnc_read;
 	u8 *_mem,*_regs;
+	void *_machine;
+private:
+	u64 _status;
 };
 
 #endif

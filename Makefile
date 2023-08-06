@@ -20,8 +20,9 @@ CF+=-fdevirtualize-speculatively -fexpensive-optimizations
 #CFLAGS+=-fno-move-loop-stores
 #CF+=-fno-omit-frame-pointer
 #CF=-O3 -fno-omit-frame-pointer
-CF+=-O0
-CF=-g -D_DEBUG -DLOGLEVEL=9  -Wno-deprecated-declarations
+CF+=-O0 -fpermissive
+#CF=-g2 -fpermissive -DLOGLEVEL=9 -D_DEVELOP
+CF+=-D_DEBUG -Wno-deprecated-declarations
 
 GTK_LIBS=$(shell $(PKGCONFIG) --libs gtk+-3.0 gmodule-2.0)
 LIBS=-lm $(GTK_LIBS) -lpthread -lasound
@@ -38,6 +39,7 @@ INCLUDE_DIR+=$(patsubst %,-I%, $(SUBDIR))
 #OBJ=$(addprefix $(OBJDIR)/, $(SOURCES:glade=o))
 
 DEPS=$(wildcard *.h $(foreach fd, $(SUBDIR), $(fd)/*.h))
+#DEPS+=$(wildcard *.inc $(foreach fd, $(SUBDIR), $(fd)/*.inc))
 CFLAGS= $(shell $(PKGCONFIG) --cflags gtk+-3.0) $(INCLUDE_DIR) $(LIB_DIR) $(CF)
 
 $(OBJDIR)/%.o: %.c* $(DEPS)

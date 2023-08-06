@@ -22,6 +22,7 @@
 
 #define IDC_LED_MENU			0x130
 #define	IDC_DEBUG_TV1			5105
+#define	IDC_DEBUG_DA1			5106
 #define IDC_LED_PIN0			5100
 #define IDC_LED_PIN1			5301
 #define IDC_LED_PIN2			5302

@@ -99,4 +99,10 @@ public:
 	virtual ~redearthn();
 
 };
+
+class blacktiger : public FileGame{
+public:
+	blacktiger();
+	virtual ~blacktiger();
+};
 #endif

@@ -1,11 +1,13 @@
 #include "pcmdac.h"
 #include "utils.h"
 
-
+#ifdef _DEVELOP
 static FILE *fp=0;
-static int lino=0;
+static u32 lino=0;
+static FILE *flog=0;
+#endif
 
-PCMDAC::PCMDAC() : Runnable(240000){
+PCMDAC::PCMDAC() : Runnable(120000){
 	_handle=0;
 	__samples=NULL;
 	Reset();
@@ -15,12 +17,25 @@ PCMDAC::~PCMDAC(){
 	Destroy();
 }
 
+void PCMDAC::_reset(){
+	_pos_write=0;
+	_pos_read=2*44100*2;
+	_n_write=0;
+	_n_read=0;
+	_elapsed=0;
+}
+
 int PCMDAC::Start(){
-	return -1;
+	if(hasStatus(PLAY)) return 1;
+	_reset();
+	addStatus(PLAY);
+	return 0;
 }
 
 int PCMDAC::Stop(){
-	return -1;
+	if(!hasStatus(PLAY)) return -1;
+	clearStatus(PLAY);
+	return 0;
 }
 
 int PCMDAC::Close(){
@@ -37,24 +52,34 @@ int PCMDAC::Open(int ch,int freq){
 		return -1;
 	if (snd_pcm_set_params(_handle,SND_PCM_FORMAT_S16_LE,SND_PCM_ACCESS_RW_INTERLEAVED,2,44100,0, 500000) < 0)
 		return -2;
-	if(!(__samples=new u16[(_sz_samples=ch*44100*3)]))
+	if(!(__samples=new u8[(_sz_samples=2*44100*5*+sizeof(u16))]))
 		return -3;
-	Configure();
-
-	_sz_samples*=2;
 	_frequency=freq;
 	_channels=ch;
-	_resample_step=(freq*4096) / 44100;
 
-	//printf("resample %u\n",_resample_step);
+	_configure();
+
+	_resample_step=(freq*4096) / 44100;
+#ifdef _DEVELOPa
+	flog=fopen("log.log","w+");
+#endif
 	Reset();
 	return 0;
 }
 
 int PCMDAC::Destroy(){
-	printf("%s destroy\n",__FILE__);
-	if(fp) fclose(fp);
+#ifdef _DEVELOP
+	if(fp){
+		WAVHDR w={{'R','I','F','F'},lino+36,{'W','A','V','E','f','m','t',' '},16,1,2,44100,176400,4,16,{'d','a','t','a'},lino};
+		fseek(fp,0,SEEK_SET);
+		fwrite(&w,sizeof(WAVHDR),1,fp);
+		fclose(fp);
+	}
 	fp=0;
+	if(flog)
+		fclose(flog);
+	flog=0;
+#endif
 	Runnable::Destroy();
 	Close();
 	if(__samples)
@@ -67,10 +92,17 @@ int PCMDAC::Destroy(){
 int PCMDAC::Reset(){
 	if(__samples)
 		memset(__samples,0,_sz_samples);
-	_pos_write=0;
-	_pos_read=_sz_samples/2;
-	_n_write=0;
-	_elapsed=0;
+	_reset();
+	Stop();
+
+#ifdef _DEVELOPa
+	if(fp==0){
+		WAVHDR w;
+
+		if((fp=fopen("audio.wav","wb")))
+			fwrite(&w,sizeof(WAVHDR),1,fp);
+	}
+#endif
 	return 0;
 }
 
@@ -84,20 +116,25 @@ int PCMDAC::Write(void *p,u32 sz){
 	EnterCriticalSection(&_cr);
 	//if(fp) fwrite(p,sz,1,fp);
 	s=(u16 *)p;
-	d=&__samples[_pos_write/2];
-
+	d=(u16 *)&__samples[_pos_write];
 	for(sz=SL(sz,11),pos=0;pos < sz;pos+=_resample_step){
 		d[0] = s[SR(pos,12)];
-		d[1] = s[SR(pos,12)];
-
-	//	if(fp) fwrite(d,1,4,fp);
-		d+=2;
-		if((_pos_write += 4) >= _sz_samples){
+		if(_channels==1)
+			d[1] = d[0];
+#ifdef _DEVELOP
+		if(fp)
+			fwrite(d,1,4,fp);
+		lino+=4;
+#endif
+		if((_pos_write += 4) >= _sz_samples-3){
 			_pos_write = 0;
-			d = __samples;
+			d = (u16 *)__samples;
 		}
+		else
+			d+=2;
 		_n_write += 4;
 	}
+	Start();
 	LeaveCriticalSection(&_cr);
 	return 0;
 }
@@ -105,54 +142,75 @@ int PCMDAC::Write(void *p,u32 sz){
 void PCMDAC::OnRun(){
 	snd_pcm_sframes_t frames;
 
-	_elapsed+=240;
-	if(fp==0) fp=fopen("audio.raw","wb");
-
 	EnterCriticalSection(&_cr);
+	if(!hasStatus(PLAY))
+		goto A;
+	_elapsed += 61;
 	//if(!BT(_status,BV(16)))
 		//goto A;
 	if(_elapsed >= 960){
-		//printf("fff %u %u %u %u %u\n",_elapsed,_n_write,_resample_step,_pos_read,_pos_write);
+#ifdef _DEVELOP
+		if(flog)
+			fprintf(flog,"\trp %u w:%u r:%u %u rp:%u wp:%u\n",_elapsed,_n_write,_n_read,_resample_step,_pos_read,_pos_write);
+#endif
 		//fixmee
 		if(_n_write){
-			if(_n_write < 44100)
+			if(_n_write < _n_read)
 				_resample_step  -= 256;
 			else
 				_resample_step  += 256;
 			//_resample_step=((_frequency*4096)/44100)/((_frequency*4)/_n_write);
 		}
+		else
+			Stop();
 		_n_write=0;
+		_n_read=0;
 		_elapsed=0;
 	}
 
-	int frame_bytes = (snd_pcm_format_width(SND_PCM_FORMAT_S16_LE) / 8)*2;
-
+	///int frame_bytes = (snd_pcm_format_width(SND_PCM_FORMAT_S16_LE) / 8)*2;
+#ifdef _DEVELOPa
+	if(flog){
+		fprintf(flog,"rr w:%u r:%u %u",_pos_write,_pos_read,_sz_samples);
+		fflush(flog);
+	}
+#endif
 	for(int r=_period_size*2;r>0;){
-		int n = _sz_samples - _pos_read;
-		if(n > r)
-			n=r;
-		//if(fp) fwrite(&_samples[_pos_read/2],n,1,fp);
-		frames = snd_pcm_writei(_handle, &__samples[_pos_read/2], n);
-		//frames=0;
+		int n = (_sz_samples - _pos_read);
+		if(n > _period_size)
+			n=_period_size;
+		frames = snd_pcm_writei(_handle, &__samples[_pos_read], n);
 		if (frames == -EAGAIN)
             continue;
-		//if (frames < 0)
-			//frames = snd_pcm_recover(_handle, frames, 0);
+		if (frames < 0)
+			frames = snd_pcm_recover(_handle, frames, 0);
 		if (frames < 0) {
 			printf("snd_pcm_writei %d %d %u %u %s\n",r,n,_pos_read,_sz_samples,snd_strerror(frames));
 			return;
 		}
-		//printf("frames %u %ld %d %d lino:%d\n",GetTickCount(),frames,n,frame_bytes,lino++);
-	//	n=frames*frame_bytes;
-		if((_pos_read += n*2) >= _sz_samples)
+		n=frames*4;
+#ifdef _DEVELOPa
+		if(flog)
+			fprintf(flog,"\t%u %u %ld",_pos_read,n,frames);
+		//if(fp)
+			//fwrite(&__samples[_pos_read],n,1,fp);
+		//lino += n;
+#endif
+		if((_pos_read += n) >= (_sz_samples-4))
 			_pos_read = 0;
+		_n_read+=n;
 		r-= n;
+		///r=0;
+#ifdef _DEVELOP
+		if(flog)
+			fprintf(flog,"\n");
+#endif
 	}
 A:
 	LeaveCriticalSection(&_cr);
 }
 
-int PCMDAC::Configure(){
+int PCMDAC::_configure(){
 	/*snd_pcm_hw_params_t *hwparams;
     snd_pcm_sw_params_t *swparams;
 	int err;
@@ -162,14 +220,20 @@ int PCMDAC::Configure(){
     err = snd_pcm_hw_params_any(_handle, hwparams);
 */
 	snd_pcm_uframes_t l,ll;
-	static snd_output_t *output = NULL;
+	///static snd_output_t *output = NULL;
 
 	l=ll=0;
 	snd_pcm_get_params(_handle,&l,&ll);
+	///ll=snd_pcm_avail(_handle);
 	_period_size=(u32)ll;
 
-//	snd_output_stdio_attach(&output, stdout, 0);
+	u32 t = 1000000/((44100*2*4096)/_period_size);
+
+	//printf("tt  %d %u\n",SL(t,12),_period_size);
+	_set_time(SL(t,12));
+//	printf("pz %lu %lu\n",l,ll);
+	//snd_output_stdio_attach(&output, stdout, 0);
 	//snd_pcm_dump(_handle, output);
 
-	return -1;
+	return 0;
 }

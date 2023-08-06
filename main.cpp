@@ -1,6 +1,6 @@
 #include "arkad.h"
 #include "gui.h"
-#include "cps3m.h"
+#include "settings.h"
 #include "utils.h"
 
 GUI gui;
@@ -12,19 +12,25 @@ ICore *cpu=NULL;
 int main(int argc, char *argv[]){
 	int i;
 
-	freopen ("myfile.txt","w",stderr);
+	//freopen ("myfile.txt","w",stderr);
+#ifdef __WIN32__
+  INITCOMMONCONTROLSEX icc;
+
+  icc.dwSize = sizeof(icc);
+  icc.dwICC = ICC_WIN95_CLASSES;
+  InitCommonControlsEx(&icc);
+#else
     gtk_init(&argc, &argv);
-	gui.Init();
-#ifdef _DEVELOPa
-	gui.LoadBinary("roms/m68k/lino.bin");
 #endif
+	gui.Init();
 	gui.Loop();
 
 	if(machine)
 		machine->Destroy();
-
 	return 0;
 }
+
+#ifndef __WIN32__
 
 extern "C" gboolean on_destroy(GtkWidget *widget,GdkEvent  *event, gpointer   user_data){
 	gchar *name = (gchar *)gtk_widget_get_name(GTK_WIDGET(widget));
@@ -40,7 +46,7 @@ extern "C" gboolean on_paint (GtkWidget* self,cairo_t* cr,gpointer user_data){
 	return 1;
 }
 
-extern "C" void on_menuiteem_select(GtkMenuItem* item,gpointer user_data){
+extern "C" void on_menuitem_select(GtkMenuItem* item,gpointer user_data){
 	gchar *name = (gchar *)gtk_widget_get_name(GTK_WIDGET(item));
 	u32 id = atoi(name);
 	GtkWidget *p=gtk_menu_item_get_submenu(item);
@@ -109,12 +115,17 @@ extern "C" gboolean on_scroll_change(GtkRange *range,GtkScrollType scroll,gdoubl
 	return FALSE;
 }
 
-extern "C" gboolean on_change_page (GtkNotebook *notebook,gint arg1, gpointer user_data){
+extern "C" gboolean on_change_page (GtkNotebook *notebook,GtkWidget *,gint arg1, gpointer user_data){
 	gchar *name = (gchar *)gtk_widget_get_name(GTK_WIDGET(notebook));
-	u32 id = atoi(name);
+	u32 id = (u32)-1;
+	if(name)
+		id=atoi(name);
+	u32 command=0;
 
 	GdkEvent *e=gtk_get_current_event();
-	gui.OnCommand(id,e->type,GTK_WIDGET(notebook));
+	if(e) command=e->type;
+	command |= SL(arg1,16);
+	gui.OnCommand(id,command,GTK_WIDGET(notebook));
 	if(e)
 		gdk_event_free(e);
 	return FALSE;
@@ -128,7 +139,9 @@ extern "C" gboolean on_key_event (GtkWidget* self,GdkEventKey event,  gpointer u
 	return 0;
 }
 
-void EnterDebugMode(u64 v){
+#endif
+
+void EnterDebugMode(u64 v,u64 f){
 	gui.DebugMode(1,v);
 }
 
@@ -136,7 +149,7 @@ void OnMemoryUpdate(u32 a,u32 b){
 	gui.OnMemoryUpdate(a,b);
 }
 
-int isDebug(u64 v){
+u64 isDebug(u64 v){
 	u64 vv = gui._getStatus();
 	return BT(vv,v) !=0;
 }

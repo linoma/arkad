@@ -1,13 +1,21 @@
+#ifndef __WIN32__
 #include <gtk/gtk.h>
 #include <gdk/gdk.h>
 #include <gdk/gdkkeysyms.h>
 #include <cairo/cairo.h>
+#include <pthread.h>
+#include <sys/time.h>
+#else
+#include <windows.h>
+#include <commctrl.h>
+#endif
+
+
+#include <iostream>
 #include <string>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-#include <pthread.h>
-#include <sys/time.h>
 #include <cstdarg>
 #include "icore.h"
 
@@ -18,11 +26,12 @@ typedef GtkWidget 	*HWND;
 typedef GdkPixbuf 	*HBITMAP;
 typedef GdkEvent	MSG;
 typedef MSG *		LPMSG;
+typedef cairo_t *	HDC;
 
-typedef unsigned char BOOL;
-typedef unsigned long LONG;
-typedef u32 DWORD;
-typedef void *LPVOID;
+typedef unsigned char 	BOOL;
+typedef unsigned long 	LONG;
+typedef u32 			DWORD;
+typedef void *			LPVOID;
 
 typedef struct __IGame : IObject{
 	virtual int Open(char *)=0;
@@ -41,6 +50,7 @@ typedef struct __IMachine {
 	virtual int Load(IGame *,char *)=0;
 	virtual int Destroy()=0;
 	virtual int Init()=0;
+	virtual int LoadSettings(void * &)=0;
 } IMachine;
 
 
@@ -61,6 +71,7 @@ typedef struct __IMachine {
 	#define DPS_PATH_INVERSE "\\"
 #endif
 
+#ifndef __WIN32__
 #define MAKEWORD(a,b) (((b)<<16)|(a))
 #define MAKEHWORD(a,b) (((b)<<8)|(a))
 #define MAKEBYTE(a,b) (((b)<<4)|(a))
@@ -70,18 +81,7 @@ typedef struct __IMachine {
 #define HIBYTE(a) ((u8)SR(a,8))
 #define LOBYTE(a) ((u8)a)
 
-#define SR(a,b) ((a)>>(b))
-#define SL(a,b) ((a)<<(b))
-
-#define BV(a) SL(1,(a))
-#define BC(a,b) ((a) &= ~(b))
-#define BS(a,b) ((a) |= (b))
-#define BT(a,b) ((a) & (b))
-#define KB(a) ((a)*1024)
-#define MB(a) (KB(a)*1024)
-#define BVT(a,b) BT(a,BV(b))
-#define BVC(a,b) BC(a,BV(b))
-#define BVS(a,b) BS(a,BV(b))
+#endif
 
 #define AWORD(a,b) *((u32 *)&((u8 *)a)[b])
 #define AHWORD(a,b) *((u16 *)&((u8 *)a)[b])
@@ -90,39 +90,36 @@ typedef struct __IMachine {
 #define RGB(a,b,c) (SL((u8)c,16)|SL((u8)b,8)|(u8)a)
 #define RGB555(a,b,c) (SL(c,10)|SL(b,5)|a)
 
-#define S_QUIT			BV(0)
-#define S_INIT			BV(1)
-#define S_RUN			BV(2)
-#define I_PAUSE			3
-#define S_PAUSE			BV(I_PAUSE)
-#define S_DEBUG_NEXT 	BV(4)
+#define KB(a) ((a)*1024)
+#define MB(a) (KB(a)*1024)
 
-#define S_DEBUG			BV(8)
-#define S_LOAD			BV(16)
-#define S_DEBUG_UPDATE	BV(17)
+#define KHZ(a) ((a)*1000)
+#define MHZ(a) (KHZ((a))*1000)
 
 extern u32 __cycles,__data;
 extern int _error_level;
 extern ICore *cpu;
 extern IMachine *machine;
 
-
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-void on_menuiteem_select(GtkMenuItem* item,gpointer user_data);
+void on_menuitem_select(GtkMenuItem* item,gpointer user_data);
 gboolean on_mouse_down (GtkWidget* self, GdkEventButton *event,gpointer user_data);
 void on_menu_init (GtkWidget  *item, GtkWidget *p,  gpointer   user_data);
 void on_button_clicked(GtkButton *button,gpointer user_data);
 void on_command(GtkWidget* item,gpointer user_data);
+gboolean on_scroll_change(GtkRange *range,GtkScrollType scroll,gdouble value,gpointer user_data);
+gboolean on_change_page (GtkNotebook *notebook,GtkWidget *,gint arg1, gpointer user_data);
+
 
 #ifdef __cplusplus
 }
 #endif
 
-int isDebug(u64);
-void EnterDebugMode(u64 v=0);
+u64 isDebug(u64 v=S_DEBUG);
+void EnterDebugMode(u64 v=0,u64 f=0);
 void OnMemoryUpdate(u32 a,u32 b);
 void _log_printf(int level,const char *fmt,...);
 
@@ -134,6 +131,9 @@ void _log_printf(int level,const char *fmt,...);
 #define LOGE(fmt,...) LOG(8,(fmt),## __VA_ARGS__)
 
 #define EXIT(fmt,...) printf((fmt),## __VA_ARGS__);exit(-1);
+
+
+#define CALLVA(a,b,...) a(b,## __VA_ARGS__)
 
 #ifdef _DEBUG
 	#ifndef LOGLEVEL
