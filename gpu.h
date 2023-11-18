@@ -18,7 +18,7 @@ public:
 	virtual int Run(u8 *,int)=0;
 	virtual int Serialize(IStreamer *){return 0;};
 	virtual int Unserialize(IStreamer *){printf("giocp\n");return 0;};
-	//int Query(u32 a,void *p){printf("cazzo duro\n");if(a==ICORE_QUERY_OID){*((u32  *)p)=0x01000001;return 0;} return -1;};
+	//int Query(u32 a,void *p){printf("Query\n");if(a==ICORE_QUERY_OID){*((u32  *)p)=0x01000001;return 0;} return -1;};
 	virtual int LoadSettings(void * &v);
 protected:
 	HBITMAP _bit;
