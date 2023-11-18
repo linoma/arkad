@@ -5,28 +5,88 @@
 
 GUI gui;
 IMachine *machine=NULL;
-u32 __cycles,__data;
-int _error_level=1;//LOGLEVEL;
 ICore *cpu=NULL;
 
-int main(int argc, char *argv[]){
-	int i;
+u32 __cycles,__data;
+int _error_level=1;//LOGLEVEL;
 
-	//freopen ("myfile.txt","w",stderr);
 #ifdef __WIN32__
-  INITCOMMONCONTROLSEX icc;
+HINSTANCE hInst,hGdipLib=NULL;
 
-  icc.dwSize = sizeof(icc);
-  icc.dwICC = ICC_WIN95_CLASSES;
-  InitCommonControlsEx(&icc);
+LPGDIPBITMAPLOCKBITS pfnGdipBitmapLockBits;
+LPGDIPBITMAPUNLOCKBITS pfnGdipBitmapUnlockBits;
+LPGDIPDRAWIMAGERECTI pfnGdipDrawImageRectI;
+LPGDIPCREATEBITMAPFROMHBITMAP pfnGdipCreateBitmapFromHBITMAP;
+LPGDIPRELEASEDC pfnGdipReleaseDC;
+LPGDIPDISPOSEIMAGE pfnGdipDisposeImage;
+LPGDIPCREATEFROMHDC pfnGdipCreateFromHDC;
+LPGDIPCREATEBITMAPFROMGDIDIB pfnGdipCreateBitmapFromGDIDIB;
+LPGDIPDELETEGRAPHICS pfnGdipDeleteGraphics;
+LPGDIPSTARTUP pfnGdipStartup;
+LPGDIPSHUTDOWN pfnGdipShutDown;
+LPGDIPLOADIMAGEFROMSTREAM pfnGdipLoadImageFromStream;
+
+static ULONG token=0;
+
+int WINAPI WinMain(HINSTANCE h, HINSTANCE hPrev, LPSTR lpCmdLine, int nCmdShow){
+	INITCOMMONCONTROLSEX icc;
+	GDIPSTARTUPINPUT st={1,NULL,FALSE,FALSE};
+	LPVOID output;
+
+	hInst = h;
+	ZeroMemory(&icc,sizeof(INITCOMMONCONTROLSEX));
+	icc.dwSize = sizeof(icc);
+	icc.dwICC = ICC_WIN95_CLASSES;
+	InitCommonControlsEx(&icc);
+	OleInitialize(NULL);
+
+	if(hGdipLib == NULL)
+       hGdipLib = LoadLibrary("gdiplus.dll");
+	if(hGdipLib != NULL){
+		pfnGdipStartup = (LPGDIPSTARTUP)GetProcAddress(hGdipLib,"GdiplusStartup");
+		pfnGdipStartup(&token,&st,output);
+		pfnGdipShutDown = (LPGDIPSHUTDOWN)GetProcAddress(hGdipLib,"GdiplusShutdown");
+		pfnGdipCreateFromHDC = (LPGDIPCREATEFROMHDC)
+			GetProcAddress(hGdipLib,"GdipCreateFromHDC");
+		pfnGdipCreateBitmapFromHBITMAP = (LPGDIPCREATEBITMAPFROMHBITMAP)
+			GetProcAddress(hGdipLib,"GdipCreateBitmapFromHBITMAP");
+		pfnGdipBitmapLockBits = (LPGDIPBITMAPLOCKBITS)
+			GetProcAddress(hGdipLib,"GdipBitmapLockBits");
+		pfnGdipBitmapUnlockBits = (LPGDIPBITMAPUNLOCKBITS)
+			GetProcAddress(hGdipLib,"GdipBitmapUnlockBits");
+		pfnGdipDrawImageRectI = (LPGDIPDRAWIMAGERECTI)
+			GetProcAddress(hGdipLib,"GdipDrawImageRectI");
+		pfnGdipDisposeImage = (LPGDIPDISPOSEIMAGE)
+			GetProcAddress(hGdipLib,"GdipDisposeImage");
+		pfnGdipReleaseDC = (LPGDIPRELEASEDC)
+			GetProcAddress(hGdipLib,"GdipReleaseDC");
+		pfnGdipCreateBitmapFromGDIDIB = (LPGDIPCREATEBITMAPFROMGDIDIB)
+			GetProcAddress(hGdipLib,"GdipCreateBitmapFromGdiDib");
+		pfnGdipDeleteGraphics = (LPGDIPDELETEGRAPHICS)
+			GetProcAddress(hGdipLib,"GdipDeleteGraphics");
+		pfnGdipLoadImageFromStream = (LPGDIPLOADIMAGEFROMSTREAM)
+			GetProcAddress(hGdipLib,"GdipLoadImageFromStream");
+   }
 #else
+int main(int argc, char *argv[]){
+	//freopen ("myfile.txt","w",stderr);
     gtk_init(&argc, &argv);
 #endif
 	gui.Init();
 	gui.Loop();
-
 	if(machine)
 		machine->Destroy();
+#ifdef __WIN32__
+	if(hGdipLib != NULL){
+       if(token != 0){
+           pfnGdipShutDown(token);
+           token = 0;
+       }
+       FreeLibrary(hGdipLib);
+       hGdipLib = NULL;
+	}
+	OleUninitialize();
+#endif
 	return 0;
 }
 
@@ -34,15 +94,19 @@ int main(int argc, char *argv[]){
 
 extern "C" gboolean on_destroy(GtkWidget *widget,GdkEvent  *event, gpointer   user_data){
 	gchar *name = (gchar *)gtk_widget_get_name(GTK_WIDGET(widget));
-	u32 id = atoi(name);
-	gui.OnCloseWWindow(id,widget);
+	if(name){
+		u32 id = atoi(name);
+		gui.OnCloseWindow(id,widget);
+	}
 	return 1;
 }
 
 extern "C" gboolean on_paint (GtkWidget* self,cairo_t* cr,gpointer user_data){
 	gchar *name = (gchar *)gtk_widget_get_name(GTK_WIDGET(self));
-	u32 id = atoi(name);
-	gui.OnPaint(id,GTK_WIDGET(self),cr);
+	if(name){
+		u32 id = atoi(name);
+		gui.OnPaint(id,GTK_WIDGET(self),cr);
+	}
 	return 1;
 }
 
@@ -56,17 +120,33 @@ extern "C" void on_menuitem_select(GtkMenuItem* item,gpointer user_data){
 		gui.OnPopupMenuInit(id,GTK_MENU_SHELL(p));
 }
 
+extern "C" gboolean on_mouse_up (GtkWidget* self, GdkEventButton *event,gpointer user_data){
+	return 0;
+}
+
+extern "C" gboolean on_mouse_move (GtkWidget* self, GdkEventMotion *event,gpointer user_data){
+	gchar *name = (gchar *)gtk_widget_get_name(GTK_WIDGET(self));
+	if(name){
+		u32 id = atoi(name);
+		gui.OnMouseMove(id,self,event->state,(int)event->x,(int)event->y);
+	}
+	return 0;
+}
+
 extern "C" gboolean on_mouse_down (GtkWidget* self, GdkEventButton *event,gpointer user_data){
 	gchar *name = (gchar *)gtk_widget_get_name(GTK_WIDGET(self));
-	u32 id = atoi(name);
-	if(event->type == GDK_2BUTTON_PRESS)
-		return gui.OnLDblClk(id,self);
-	else if(event->type != GDK_BUTTON_PRESS)
-		return 0;
-	if(event->button==3)
-		gui.OnRButtonDown(id,self);
-	else if(event->button==1)
-		gui.OnLButtonDown(id,self);
+	if(name){
+		u32 id = atoi(name);
+
+		if(event->type == GDK_2BUTTON_PRESS)
+			return gui.OnLDblClk(id,self);
+		else if(event->type != GDK_BUTTON_PRESS)
+			return 0;
+		if(event->button==3)
+			gui.OnRButtonDown(id,self);
+		else if(event->button==1)
+			gui.OnLButtonDown(id,self);
+	}
 	return 0;
 }
 
@@ -100,9 +180,10 @@ extern "C" void on_command(GtkWidget* item,gpointer user_data){
 }
 
 extern "C" gboolean on_move_resize(GtkWidget *window, GdkEvent *event, gpointer data) {
+	if(!((GdkEventConfigure *)event)->send_event) return 0;
 	gchar *name = (gchar *)gtk_widget_get_name(GTK_WIDGET(window));
 	u32 id = atoi(name);
-	gui.OnMoveResize(id,GTK_WIDGET(window),(GdkEventConfigure *)event);
+	gui.OnMoveResize(id,GTK_WIDGET(window),((GdkEventConfigure *)event)->width,((GdkEventConfigure *)event)->height);
 	return 0;
 }
 
@@ -115,7 +196,7 @@ extern "C" gboolean on_scroll_change(GtkRange *range,GtkScrollType scroll,gdoubl
 	return FALSE;
 }
 
-extern "C" gboolean on_change_page (GtkNotebook *notebook,GtkWidget *,gint arg1, gpointer user_data){
+extern "C" gboolean on_change_page(GtkNotebook *notebook,GtkWidget *,gint arg1, gpointer user_data){
 	gchar *name = (gchar *)gtk_widget_get_name(GTK_WIDGET(notebook));
 	u32 id = (u32)-1;
 	if(name)
@@ -142,11 +223,12 @@ extern "C" gboolean on_key_event (GtkWidget* self,GdkEventKey event,  gpointer u
 #endif
 
 void EnterDebugMode(u64 v,u64 f){
+//	if(!v) *((u64 *)0)=1;
 	gui.DebugMode(1,v);
 }
 
-void OnMemoryUpdate(u32 a,u32 b){
-	gui.OnMemoryUpdate(a,b);
+void OnMemoryUpdate(u32 a,u32 b,void *c){
+	gui.OnMemoryUpdate(a,b,(ICore *)c);
 }
 
 u64 isDebug(u64 v){
@@ -171,7 +253,6 @@ void _log_printf(int level,const char *fmt,...){
 A:
 	va_start(arg, fmt);
 	gui.putf(level,fmt,arg);
-
     va_end(arg);
    // GLOG(level,fmt);
 }

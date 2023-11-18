@@ -10,7 +10,6 @@
 #include <commctrl.h>
 #endif
 
-
 #include <iostream>
 #include <string>
 #include <stdio.h>
@@ -22,72 +21,118 @@
 #ifndef __ARKADH__
 #define __ARKADH__
 
-typedef GtkWidget 	*HWND;
-typedef GdkPixbuf 	*HBITMAP;
-typedef GdkEvent	MSG;
-typedef MSG *		LPMSG;
-typedef cairo_t *	HDC;
+#ifndef I_FASTCALL
+	#ifdef __GNUC__
+      	#define I_FASTCALL __attribute__ ((regparm(2)))
+  	#elif defined(__WATCOMC__)
+  		#define I_FASTCALL __watcall
+   #else
+       #define I_FASTCALL __fastcall
+   #endif
+#endif
 
-typedef unsigned char 	BOOL;
-typedef unsigned long 	LONG;
-typedef u32 			DWORD;
-typedef void *			LPVOID;
+#ifndef I_STDCALL
+	#ifdef __GNUC__
+		#define I_STDCALL __attribute__ ((stdcall))
+	#else
+		#define I_STDCALL __stdcall
+	#endif
+#endif
 
-typedef struct __IGame : IObject{
-	virtual int Open(char *)=0;
-	virtual int Close()=0;
-	virtual int Read(void *,u32,u32 *)=0;
-	virtual int Seek(s64,u32)=0;
+#ifndef I_CDECL
+	#ifdef __GNUC__
+		#define I_CDECL __attribute__ ((cdecl))
+	#else
+		#define I_CDECL __cdecl
+	#endif
+#endif
+
+#ifndef I_EXPORT
+	#ifdef __WIN32__
+		#define I_EXPORT __declspec(dllexport)
+	#else
+		#define I_EXPORT
+	#endif
+#endif
+
+typedef struct __IGame : IObject,IStreamer{
 } IGame;
 
-#define MACHINE_EVENT(a) (0x80000000|(a))
+typedef struct __ISerializable{
+	virtual int Serialize(IStreamer *)=0;
+	virtual int Unserialize(IStreamer *)=0;
+} ISerializable;
+
+#define MACHINE_EVENT(a) ((u32)(0x80000000|(a)))
 
 typedef struct __IMachine {
 	virtual int OnEvent(u32,...)=0;
-	virtual int Draw(cairo_t *)=0;
+	virtual int Draw(HDC)=0;
 
 	virtual int Exec(u32)=0;
 	virtual int Load(IGame *,char *)=0;
 	virtual int Destroy()=0;
 	virtual int Init()=0;
+	virtual int Reset()=0;
+
 	virtual int LoadSettings(void * &)=0;
+	virtual int SaveState(IStreamer *)=0;
+	virtual int LoadState(IStreamer *)=0;
 } IMachine;
 
+typedef struct{
+   char fileName[1024];
+   u32 dwSize,dwSizeCompressed,dwFlags;
+} COMPRESSEDFILEINFO,*LPCOMPRESSEDFILEINFO;
+
+typedef struct __ICompressedFile : public IStreamer{
+	virtual void SetFileStream(IStreamer *pStream) = 0;
+	virtual int AddCompressedFile(const char *lpFileName,const int iLevel = 9) =0;
+	virtual int DeleteCompressedFile(u32 index) =0;
+	virtual u32 ReadCompressedFile(void * buf,u32 dwByte) =0;
+	virtual int OpenCompressedFile(u16 uIndex,int mode=0) =0;
+	virtual u32 WriteCompressedFile(void * buf,u32 dwByte) =0;
+	virtual void Rebuild() =0;
+	virtual int get_FileCompressedInfo(u32 index,LPCOMPRESSEDFILEINFO p) =0;
+	virtual u32 Count() =0;
+} ICompressedFile;
 
 #define NOARG
-#define STR_IMPL_(x) #x
-#define STR(x) STR_IMPL_(x)
-#define RES(x) STR(x)
+#define STR_IMPL_(x) 	#x
+#define STR(x) 			STR_IMPL_(x)
 
 #ifdef __WIN32__
 	#define DPC_PATH '\\'
-	#define DPS_PATH STR(\\)
+	#define DPS_PATH "\\"
 	#define DPC_PATH_INVERSE '/'
 	#define DPS_PATH_INVERSE "/"
+
+	#define RES(x) 			((int)x)
 #else
 	#define DPC_PATH '/'
-	#define DPS_PATH STR(/)
+	#define DPS_PATH  "/"
 	#define DPC_PATH_INVERSE '\\'
 	#define DPS_PATH_INVERSE "\\"
+
+	#define RES(x) 			STR(x)
+
+	#define RGB(a,b,c) (SL((u8)c,16)|SL((u8)b,8)|(u8)a)
+
+	#define MAKELONG(a,b) (((b)<<16)|(a))
+
+	#define LOWORD(a) ((u16)a)
+	#define HIWORD(a) ((u16)SR(a,16))
+	#define HIBYTE(a) ((u8)SR(a,8))
+	#define LOBYTE(a) ((u8)a)
 #endif
 
-#ifndef __WIN32__
-#define MAKEWORD(a,b) (((b)<<16)|(a))
-#define MAKEHWORD(a,b) (((b)<<8)|(a))
+#define MAKEHWORD(a,b) ((((u8)(b))<<8)|(((u8)a)))
 #define MAKEBYTE(a,b) (((b)<<4)|(a))
-
-#define LOWORD(a) ((u16)a)
-#define HIWORD(a) ((u16)SR(a,16))
-#define HIBYTE(a) ((u8)SR(a,8))
-#define LOBYTE(a) ((u8)a)
-
-#endif
 
 #define AWORD(a,b) *((u32 *)&((u8 *)a)[b])
 #define AHWORD(a,b) *((u16 *)&((u8 *)a)[b])
 #define ABYTE(a,b) *((u8 *)&((u8 *)a)[b])
 
-#define RGB(a,b,c) (SL((u8)c,16)|SL((u8)b,8)|(u8)a)
 #define RGB555(a,b,c) (SL(c,10)|SL(b,5)|a)
 
 #define KB(a) ((a)*1024)
@@ -95,15 +140,22 @@ typedef struct __IMachine {
 
 #define KHZ(a) ((a)*1000)
 #define MHZ(a) (KHZ((a))*1000)
+#define GHZ(a) (MHZ((a))*1000)
 
 extern u32 __cycles,__data;
 extern int _error_level;
 extern ICore *cpu;
 extern IMachine *machine;
 
+#ifdef __WIN32__
+extern HINSTANCE hInst;
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#ifndef __WIN32__
 
 void on_menuitem_select(GtkMenuItem* item,gpointer user_data);
 gboolean on_mouse_down (GtkWidget* self, GdkEventButton *event,gpointer user_data);
@@ -112,7 +164,24 @@ void on_button_clicked(GtkButton *button,gpointer user_data);
 void on_command(GtkWidget* item,gpointer user_data);
 gboolean on_scroll_change(GtkRange *range,GtkScrollType scroll,gdouble value,gpointer user_data);
 gboolean on_change_page (GtkNotebook *notebook,GtkWidget *,gint arg1, gpointer user_data);
+gboolean on_paint (GtkWidget* self,cairo_t* cr,gpointer user_data);
 
+#else
+
+extern LPGDIPBITMAPLOCKBITS pfnGdipBitmapLockBits;
+extern LPGDIPBITMAPUNLOCKBITS pfnGdipBitmapUnlockBits;
+extern LPGDIPDRAWIMAGERECTI pfnGdipDrawImageRectI;
+extern LPGDIPCREATEBITMAPFROMHBITMAP pfnGdipCreateBitmapFromHBITMAP;
+extern LPGDIPRELEASEDC pfnGdipReleaseDC;
+extern LPGDIPDISPOSEIMAGE pfnGdipDisposeImage;
+extern LPGDIPCREATEFROMHDC pfnGdipCreateFromHDC;
+extern LPGDIPCREATEBITMAPFROMGDIDIB pfnGdipCreateBitmapFromGDIDIB;
+extern LPGDIPDELETEGRAPHICS pfnGdipDeleteGraphics;
+extern LPGDIPSTARTUP pfnGdipStartup;
+extern LPGDIPSHUTDOWN pfnGdipShutDown;
+extern LPGDIPLOADIMAGEFROMSTREAM pfnGdipLoadImageFromStream;
+
+#endif
 
 #ifdef __cplusplus
 }
@@ -120,29 +189,31 @@ gboolean on_change_page (GtkNotebook *notebook,GtkWidget *,gint arg1, gpointer u
 
 u64 isDebug(u64 v=S_DEBUG);
 void EnterDebugMode(u64 v=0,u64 f=0);
-void OnMemoryUpdate(u32 a,u32 b);
+void OnMemoryUpdate(u32 a,u32 b,void *c=NULL);
 void _log_printf(int level,const char *fmt,...);
 
+#define EXIT(fmt,...) {printf((fmt),## __VA_ARGS__);exit(-1);}
 
-#define LOG(level,fmt,...) _log_printf(level,(fmt),## __VA_ARGS__)
-#define LOGV(fmt,...) LOG(1,(fmt),## __VA_ARGS__)
-#define LOGI(fmt,...) LOG(2,(fmt),## __VA_ARGS__)
-#define LOGD(fmt,...) LOG(4,(fmt),## __VA_ARGS__)
-#define LOGE(fmt,...) LOG(8,(fmt),## __VA_ARGS__)
-
-#define EXIT(fmt,...) printf((fmt),## __VA_ARGS__);exit(-1);
-
-
-#define CALLVA(a,b,...) a(b,## __VA_ARGS__)
+#define CALLVA(a,b,c){va_list arg__;va_start(arg__,b);(c)=a(b,arg__);va_end(arg__);}
 
 #ifdef _DEBUG
 	#ifndef LOGLEVEL
 		#define LOGLEVEL	9
 	#endif
+	#define LOG(level,fmt,...) _log_printf(level,(fmt),## __VA_ARGS__)
+	#define LOGV(fmt,...) LOG(1,(fmt),## __VA_ARGS__)
+	#define LOGI(fmt,...) LOG(2,(fmt),## __VA_ARGS__)
+#ifdef _DEVELOP
+	#define LOGD(fmt,...) LOG(4,(fmt),## __VA_ARGS__)
+	#define LOGE(fmt,...) LOG(8,(fmt),## __VA_ARGS__)
+#else
+	#define LOGD(fmt,...)
+	#define LOGE(fmt,...)
+#endif
 	#define DEVF(fmt,...) LOG(16,(fmt),## __VA_ARGS__)
 	#define LOGF(fmt,...) LOG(isDebug(DEBUG_LOG_DEV) ? -1 : 4,(fmt),## __VA_ARGS__)
 
-	#define ONMEMORYUPDATE(a,c)	OnMemoryUpdate((a),c)
+	#define ONMEMORYUPDATE(a,b,c)	OnMemoryUpdate((a),b,c)
 #else
 	#define DEVF(fmt,...)
 	#define LOGF(fmt,...)
@@ -150,7 +221,13 @@ void _log_printf(int level,const char *fmt,...);
 		#define LOGLEVEL	5
 	#endif
 
-	#define ONMEMORYUPDATE(a,c)
+	#define ONMEMORYUPDATE(a,b,c)
+
+	#define LOG(level,fmt,...) _log_printf(level,(fmt),## __VA_ARGS__)
+	#define LOGV(fmt,...)
+	#define LOGI(fmt,...)
+	#define LOGD(fmt,...)
+	#define LOGE(fmt,...)
 #endif
 
 #endif

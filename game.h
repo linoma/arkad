@@ -6,21 +6,28 @@
 
 using namespace std;
 
-#define IGAME_GET_NAME	0x20000001
-#define IGAME_GET_FILENAME	0x20000002
-#define IGAME_GET_MACHINE	0x20000003
-#define IGAME_GET_ROMSIZE	0x20000004
-#define IGAME_GET_INFO		0x20000005
-#define IGAME_GET_FOLDER	0x20000006
+#define IGAME_GET_NAME			0x20000001
+#define IGAME_GET_FILENAME		0x20000002
+#define IGAME_GET_MACHINE		0x20000003
+#define IGAME_GET_ROMSIZE		0x20000004
+#define IGAME_GET_INFO			0x20000005
+#define IGAME_GET_FOLDER		0x20000006
+#define IGAME_SEARCH_FILENAME	0x20000007
+#define IGAME_GET_DISK_IMAGE	0x20000008
+
+#define IGAME_GET_INFO_SLOT		5
+#define IGAME_GIS_ATTRIBUTE		2
+#define IGAME_GIS_USER			IGAME_GET_INFO_SLOT
 
 class Game : public IGame{
 public:
 	Game();
 	virtual ~Game();
 	virtual int Query(u32,void *);
-	virtual int Open(char *)=0;
+	virtual int Open(char *,u32)=0;
 	virtual int Close()=0;
 	virtual int Read(void *,u32,u32 *)=0;
+	virtual int Write(void *,u32,u32 *)=0;
 	virtual int Seek(s64,u32)=0;
 protected:
 	struct __item{
@@ -46,9 +53,10 @@ class FileGame : public Game{
 public:
 	FileGame();
 	virtual ~FileGame();
-	virtual int Open(char *);
+	virtual int Open(char *,u32);
 	virtual int Close();
 	virtual int Read(void *,u32,u32 *);
+	virtual int Write(void *,u32,u32 *);
 	virtual int Seek(s64,u32);
 	virtual int Query(u32,void *);
 protected:
@@ -72,8 +80,11 @@ public:
 	virtual int Load(char *,IMachine *);
 	virtual int Find(char *,u32 *,u32 *);
 	virtual int MachineIndexFromGame(IGame *,u32 *);
+	char *getCurrentGameFilename();
 	static string getBasePath(string path);
 	static string getFilename(string path);
+	static int RegisterGame(IGame *);
+	static void *hInstance;
 protected:
 	u32 _game,_machine;
 };
@@ -104,5 +115,16 @@ class blacktiger : public FileGame{
 public:
 	blacktiger();
 	virtual ~blacktiger();
+};
+
+
+class c1944j : public FileGame{
+public:
+	c1944j();
+	virtual ~c1944j();
+	virtual int Query(u32,void *);
+	virtual int Open(char *,u32);
+protected:
+	u32 _key[4];
 };
 #endif

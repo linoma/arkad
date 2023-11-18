@@ -1,4 +1,6 @@
 #include "utils.h"
+
+#ifndef __WIN32__
 #include <alsa/asoundlib.h>
 
 extern "C" volatile char _binary_res_glade_start[];
@@ -45,22 +47,148 @@ DWORD GetTickCount(){
 	return (t.tv_sec * 1000) + (t.tv_usec / 1000);
 }
 
-u64 _micros(){
-	struct timeval t;
+void GetLocalTime(LPSYSTEMTIME lpSystemTime){
+	struct tm *p;
+	time_t t;
 
-	gettimeofday( &t, NULL );
-	return (t.tv_sec * 1000000) + t.tv_usec;
+	if(lpSystemTime == NULL)
+		return;
+	t = time(NULL);
+	p = localtime(&t);
+	ZeroMemory(lpSystemTime,sizeof(SYSTEMTIME));
+	if(p == NULL)
+		return;
+	lpSystemTime->wSecond = p->tm_sec;
+	lpSystemTime->wMinute = p->tm_min;
+	lpSystemTime->wHour = p->tm_hour;
+	lpSystemTime->wDay = p->tm_mday;
+	lpSystemTime->wMonth = p->tm_mon + 1;
+	lpSystemTime->wYear = 1900 + p->tm_year;
+	lpSystemTime->wDayOfWeek = p->tm_wday;
+	lpSystemTime->wMilliseconds = 0;
 }
 
-u32 _log2(u32 val){
-	u32 v;
+int SystemTimeToFileTime(SYSTEMTIME *lpSystemTime,LPFILETIME lpFileTime){
+	struct tm p;
 
-	__asm__ __volatile__(
-		"bsfl %1,%%eax\n"
-		"mov %%eax,%0\n"
-		: "=m" (v) : "m" (val) : "rax"
-	);
-	return v;
+	if(lpFileTime == NULL || lpSystemTime == NULL)
+		return FALSE;
+	p.tm_sec = lpSystemTime->wSecond;
+	p.tm_min = lpSystemTime->wMinute;
+	p.tm_hour = lpSystemTime->wHour;
+	p.tm_mday = lpSystemTime->wDay;
+	p.tm_mon = lpSystemTime->wMonth - 1;
+	p.tm_year = lpSystemTime->wYear - 1900;
+	p.tm_wday = lpSystemTime->wDayOfWeek;
+	*lpFileTime = mktime(&p);
+	return TRUE;
+}
+
+int DosDateTimeToFileTime(u16 wFatDate,u16 wFatTime,LPFILETIME lpFileTime){
+	struct tm t={0};
+
+	if(lpFileTime == NULL)
+		return FALSE;
+	t.tm_sec = (wFatTime & 0x1f) * 2;
+	t.tm_min = (wFatTime >> 5) & 0x3f;
+	t.tm_hour= (wFatTime >> 11) & 0x1f;
+	t.tm_mday = (wFatDate & 31);
+	t.tm_mon = ((wFatDate >> 5) & 0xF)-1;
+	t.tm_year = 80 + (wFatDate >> 9);
+	t.tm_isdst = -1;
+	*lpFileTime = mktime(&t);
+	return TRUE;
+}
+
+int FileTimeToDosDateTime(FILETIME *lpFileTime,u16 * lpFatDate,u16 * lpFatTime){
+	struct tm *p;
+
+	if(lpFileTime == NULL || lpFatDate  == NULL || lpFatTime == NULL)
+		return FALSE;
+	p = localtime((const time_t *)lpFileTime);
+	if(p == NULL)
+		return FALSE;
+	*lpFatTime = p->tm_sec / 2;
+	*lpFatTime |= p->tm_min << 5;
+	*lpFatTime |= p->tm_hour << 11;
+	*lpFatDate = p->tm_mday;
+	*lpFatDate |= (p->tm_mon+1) << 5;
+	*lpFatDate |= (p->tm_year - 80) << 9;
+	return TRUE;
+}
+
+int FileTimeToLocalFileTime(FILETIME *lpFileTime,LPFILETIME lpLocalFileTime){
+	struct tm *p;
+
+	if(lpFileTime == NULL || lpLocalFileTime == NULL)
+		return FALSE;
+	/*p = localtime(lpFileTime);
+	if(p == NULL)
+		return FALSE;
+	lpSystemTime->wSecond = p->tm_sec;
+	lpSystemTime->wMinute = p->tm_min;
+	lpSystemTime->wHour = p->tm_hour;
+	lpSystemTime->wDay = p->tm_mday;
+	lpSystemTime->wMonth = p->tm_mon + 1;
+	lpSystemTime->wYear = 1900 + p->tm_year;
+	lpSystemTime->wDayOfWeek = p->tm_wday;
+	lpSystemTime->wMilliseconds = 0;*/
+	return TRUE;
+}
+
+int FileTimeToSystemTime(FILETIME *lpFileTime,LPSYSTEMTIME lpSystemTime){
+	struct tm *p;
+
+	if(lpFileTime == NULL || lpSystemTime == NULL)
+		return FALSE;
+	p = localtime((const time_t *)lpFileTime);
+	if(p == NULL)
+		return FALSE;
+	lpSystemTime->wSecond = p->tm_sec;
+	lpSystemTime->wMinute = p->tm_min;
+	lpSystemTime->wHour = p->tm_hour;
+	lpSystemTime->wDay = p->tm_mday;
+	lpSystemTime->wMonth = p->tm_mon + 1;
+	lpSystemTime->wYear = 1900 + p->tm_year;
+	lpSystemTime->wDayOfWeek = p->tm_wday;
+	lpSystemTime->wMilliseconds = 0;
+	return TRUE;
+}
+
+u32 GetTempFileName(char * lpPathName,char * lpPrefixString,u32 uUnique,char *lpTempFileName){
+	char *p,s[20];
+
+	if(lpPathName == NULL || lpTempFileName == NULL)
+		return 0;
+	p = (char *)calloc(1024+1,1);
+	if(p == NULL)
+		return 0;
+	strcpy(p,lpPathName);
+	if(p[strlen(p)] != '/')
+		strcat(p,"/");
+	if(lpPrefixString != NULL)
+		strcat(p,lpPrefixString);
+	if(uUnique == 0)
+		uUnique = GetTickCount();
+	sprintf(s,"%08X.tmp",uUnique);
+	strcat(p,s);
+	strcpy(lpTempFileName,p);
+	free(p);
+	return uUnique;
+}
+
+u32 GetTempPath(u32 nBufferLength,char *lpBuffer){
+	char *p;
+	u32 dwLen;
+
+	p = getenv("HOME");
+	if(p == NULL)
+		return 0;
+	dwLen = strlen(p);
+	if(lpBuffer == NULL || nBufferLength < dwLen)
+		return dwLen;
+	strncpy(lpBuffer,p,dwLen+1);
+	return dwLen;
 }
 
 GtkWidget* GetDlgItem(GtkWidget* parent, const gchar* name){
@@ -149,32 +277,6 @@ void EnableWindow(GtkWidget *hwnd,int enable){
 	gtk_widget_set_sensitive(hwnd,enable);
 }
 
-DWORD DispatchMessage(LPMSG lpMsg){
-#ifndef __WIN32__
-	//gtk_main_do_event(lpMsg);
-	gtk_main_iteration_do (false);
-	return 0;
-#else
-	return ::DispatchMessage(lpMsg);
-#endif
-}
-
-BOOL PeekMessage(LPMSG lpMsg){
-#ifndef __WIN32__
-	HWND hwnd;
-
-	gtk_main_iteration_do (false);
-	hwnd = gtk_grab_get_current();
-	if(hwnd != NULL){
-		if(GTK_IS_MENU_SHELL(hwnd))
-			return TRUE;
-	}
-	return gtk_events_pending();
-#else
-   return ::PeekMessage(lpMsg,NULL,0,0,PM_REMOVE);
-#endif
-}
-
 int beep(int freq,int duration,int vol){
 	int err,res;
     unsigned int i;
@@ -227,6 +329,86 @@ A:
     if(buf)
 		delete []buf;
     return res;
+}
+
+
+
+#else
+int CGdiPlusLoadBitmapResource(LPCTSTR pName, LPCTSTR pType, HMODULE hInst, void **ret){
+	int res=-1;
+    HRSRC hResource = ::FindResource(hInst, pName, pType);
+    if (!hResource)
+        return -1;
+
+    DWORD imageSize = ::SizeofResource(hInst, hResource);
+    if (!imageSize)
+        return -2;
+
+    const void* pResourceData = ::LockResource(::LoadResource(hInst,hResource));
+    if (!pResourceData)
+        return -3;
+
+    void *m_hBuffer  = ::GlobalAlloc(GMEM_MOVEABLE, imageSize);
+    res--;
+    if (m_hBuffer){
+        void* pBuffer = ::GlobalLock(m_hBuffer);
+        if (pBuffer){
+            CopyMemory(pBuffer, pResourceData, imageSize);
+
+            IStream* pStream = NULL;
+            if (::CreateStreamOnHGlobal(m_hBuffer, FALSE, &pStream) == S_OK){
+				void *image;
+
+				if(!pfnGdipLoadImageFromStream(pStream,&image)){
+					*ret=image;
+					res=0;
+				}
+            }
+            ::GlobalUnlock(m_hBuffer);
+        }
+        ::GlobalFree(m_hBuffer);
+        m_hBuffer = NULL;
+    }
+    return res;
+}
+#endif
+
+
+BOOL PeekMessage(LPMSG lpMsg){
+#ifndef __WIN32__
+	HWND hwnd;
+
+	gtk_main_iteration_do (false);
+	hwnd = gtk_grab_get_current();
+	if(hwnd != NULL){
+		if(GTK_IS_MENU_SHELL(hwnd))
+			return TRUE;
+	}
+	return gtk_events_pending();
+#else
+   return ::PeekMessage(lpMsg,NULL,0,0,PM_REMOVE);
+#endif
+}
+
+DWORD DispatchMessage(LPMSG lpMsg){
+#ifndef __WIN32__
+	//gtk_main_do_event(lpMsg);
+	gtk_main_iteration_do (false);
+	return 0;
+#else
+	return ::DispatchMessage(lpMsg);
+#endif
+}
+
+u32 _log2(u32 val){
+	u32 v;
+
+	__asm__ __volatile__(
+		"bsfl %1,%%eax\n"
+		"mov %%eax,%0\n"
+		: "=m" (v) : "m" (val) : "rax"
+	);
+	return v;
 }
 
 int SaveBitmap(char *fn,int width,int height,int nc,int bp,u8 *data){

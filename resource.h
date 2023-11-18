@@ -1,8 +1,13 @@
 #ifndef __RESOURCEH__
-
 #define __RESOURCEH__
 
 #define ID_DIALOG_DEB			101
+#define IDD_ABOUTDIALOG			200
+#define IDD_DIALOG16			102
+
+#define ID_FILE_QUIT			40001
+#define ID_FILE_LOAD			5050
+#define ID_FILE_RESET			5005
 
 #define IDC_DEBUG_SB			200
 #define IDC_DEBUG_LB			201
@@ -14,9 +19,10 @@
 #define IDC_DEBUG_LB_BP			250
 #define IDC_DEBUG_LB_DIS		5400
 #define IDC_DEBUG_MENUBAR		154
+#define IDC_DEBUG_LAYERS_CB		5678
 #define IDC_DEBUG_RUN			5503
 #define IDC_DEBUG_STOP			5504
-#define IDC_DEBUG_RUN_NEXT			5501
+#define IDC_DEBUG_RUN_NEXT		5501
 #define IDC_DEBUG_RUN_CURSOR	5502
 #define IDC_DEBUG_CLOSE			5500
 
@@ -26,5 +32,12 @@
 #define IDC_LED_PIN0			5100
 #define IDC_LED_PIN1			5301
 #define IDC_LED_PIN2			5302
+
+#define IDB_TOOLBAR_BITMAP		2000
+#define IDB_LOGO				3333
+
+#ifndef SUBLANG_NEUTRAL
+	#define SUBLANG_NEUTRAL	0
+#endif
 
 #endif

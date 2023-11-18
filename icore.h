@@ -4,12 +4,122 @@
 typedef unsigned char u8;
 typedef unsigned short u16;
 typedef unsigned int u32;
-typedef unsigned long u64;
-typedef signed long s64;
+typedef unsigned long long u64;
+typedef signed long long s64;
 typedef signed char s8;
 typedef signed short s16;
 typedef signed int s32;
 typedef void *pvoid;
+
+#ifdef __WIN32__
+
+typedef HANDLE				pthread_t;
+typedef BOOL				gboolean;
+typedef void				GObject;
+typedef void *				gpointer;
+typedef int					gint;
+typedef unsigned int 		guint;
+typedef void (*GCallback)(void);
+typedef u16					GtkScrollType;
+typedef void *				HMENUITEM;
+
+#define pthread_join(a,b)			TerminateThread(a,(DWORD)b)
+#define pthread_create(a,b,c,d)		!(*a=CreateThread(NULL,0,(LPTHREAD_START_ROUTINE)c,d,0,0))
+#define gtk_widget_show_all(a)		ShowWindow(a,SW_SHOW)
+#define gtk_widget_hide(a)			ShowWindow(a,SW_HIDE)
+#define gtk_menu_new				CreateMenu
+#define GTK_IS_WIDGET				IsWindow
+#define usleep(a)					Sleep((a)/1000)
+#define GDK_KEY_F2					VK_F2
+#define GDK_KEY_Up					VK_UP
+#define GDK_KEY_Down				VK_DOWN
+#define GDK_KEY_Left				VK_LEFT
+#define GDK_KEY_Right				VK_RIGHT
+
+typedef struct{
+    float left;
+    float top;
+    float right;
+    float bottom;
+} RECTF,*LPRECTF;
+
+typedef struct{
+    UINT Width;
+    UINT Height;
+    INT Stride;
+    INT PixelFormat;
+    LPVOID Scan0;
+    UINT Reserved;
+} BITMAPDATA,*LPBITMAPDATA;
+
+typedef struct{
+    UINT GdiplusVersion;
+    LPVOID DebugEventCallback;
+    BOOL SuppressBackgroundThread;
+    BOOL SuppressExternalCodecs;
+} GDIPSTARTUPINPUT,*LPGDIPSTARTUPINPUT;
+
+typedef int __stdcall (*LPGDIPBITMAPLOCKBITS)(LPVOID,LPRECT,UINT,INT,LPBITMAPDATA);
+typedef int __stdcall (*LPGDIPBITMAPUNLOCKBITS)(LPVOID,LPBITMAPDATA);
+typedef int __stdcall (*LPGDIPDRAWIMAGERECT)(LPVOID,LPVOID,float,float,float,float);
+typedef int __stdcall (*LPGDIPDRAWIMAGERECTI)(LPVOID,LPVOID,INT,INT,INT,INT);
+typedef int __stdcall (*LPGDIPCREATEBITMAPFROMGDIDIB)(BITMAPINFO*,LPVOID,LPVOID *);
+typedef int __stdcall (*LPGDIPCREATEBITMAPFROMHBITMAP)(HBITMAP,HPALETTE,LPVOID *);
+typedef int __stdcall (*LPGDIPDISPOSEIMAGE)(LPVOID);
+typedef int __stdcall (*LPGDIPRELEASEDC)(LPVOID,HDC);
+typedef int __stdcall (*LPGDIPSHUTDOWN)(ULONG);
+typedef int __stdcall (*LPGDIPSTARTUP)(ULONG *,LPGDIPSTARTUPINPUT,LPVOID);
+typedef int __stdcall (*LPGDIPCREATEFROMHDC)(HDC,LPVOID *);
+typedef int __stdcall (*LPGDIPDRAWIMAGERECTRECTI)(LPVOID,LPVOID,INT,INT,INT,INT,INT,INT,INT,INT,INT,LPVOID,LPVOID,LPVOID);
+typedef int __stdcall (*LPGDIPDELETEGRAPHICS)(LPVOID);
+typedef int __stdcall (*LPGDIPLOADIMAGEFROMSTREAM)(LPVOID,LPVOID *);
+typedef int __stdcall (*LPGDIPDISPOSEIMAGE)(LPVOID);
+
+#else
+
+typedef GtkWidget 		*HWND;
+typedef GdkPixbuf 		*HBITMAP;
+typedef GdkEvent		MSG;
+typedef MSG *			LPMSG;
+typedef cairo_t *		HDC;
+typedef GtkTreeIter 	*HTREEITEM;
+typedef GtkMenuShell 	*HMENU;
+typedef GtkMenuItem 	*HMENUITEM;
+typedef u32				CRITICAL_SECTION;
+
+typedef void * 			HANDLE;
+typedef HANDLE			HINSTANCE;
+
+typedef unsigned char 	BOOL;
+typedef unsigned long 	LONG;
+typedef u32 			DWORD;
+typedef void *			LPVOID;
+
+typedef struct{
+	LONG left;
+	LONG top;
+	LONG right;
+	LONG bottom;
+} RECT,*LPRECT;
+
+#define ZeroMemory(a,b) memset(a,0,b)
+
+#define CREATE_NEW          	        1
+#define CREATE_ALWAYS       	        2
+#define OPEN_EXISTING       	        3
+#define OPEN_ALWAYS         	        4
+#define TRUNCATE_EXISTING   	        5
+
+ #define GENERIC_READ                     (0x80000000L)
+#define GENERIC_WRITE                    (0x40000000L)
+#define GENERIC_EXECUTE                  (0x20000000L)
+#define GENERIC_ALL                      (0x10000000L)
+
+#endif
+
+#define I_INLINE	inline
+
+#define SWAP32(v) asm volatile("bswap %0\n":"=m"(v):"r"(v));
 
 #define SR(a,b) ((a)>>(b))
 #define SL(a,b) ((a)<<(b))
@@ -22,6 +132,12 @@ typedef void *pvoid;
 #define BVT(a,b) BT(a,BV(b))
 #define BVC(a,b) BC(a,BV(b))
 #define BVS(a,b) BS(a,BV(b))
+
+#define MA__(a,b,c) 	((a)>=b && (a)<=c)
+#define MMA__(a,b,c) 	(((a)>=b && (a)<=c) || ((a)>=(0x20000000|b)	&& (a)<=(0x20000000|c)))
+#define MA_(a,b,c)  	if MA__(a,b,c)
+#define MMA_(a,b,c)  	if MMA__(a,b,c)
+#define MAE_ else
 
 #define S_QUIT			BV(0)
 #define S_INIT			BV(1)
@@ -37,17 +153,29 @@ typedef struct{
 	virtual int Query(u32,void *) = 0;
 } IObject;
 
-typedef struct : IObject{
+#define ICORE_QUERY_OID			8
+#define ICORE_QUERY_ISERIALIZE	9
+#define OID_ID(a) 				((u16)(a))
+#define OID_SERIALIZE(a) 		(SR(a,16)&1)
+
+typedef struct{
+	virtual int Read(void *,u32,u32 *r=0)=0;
+	virtual int Write(void *,u32,u32 *r=0)=0;
+	virtual int Close()=0;
+	virtual int Seek(s64,u32)=0;
+	virtual int Open(char *,u32 a=0)=0;
+} IStreamer;
+
+typedef struct : public IObject{
 	virtual int Exec(u32) = 0;
 	virtual int Dump(char **)=0;
 	virtual int Init(void *)=0;
 	virtual int Destroy()=0;
-	//virtual int Load(char *)=0;
+	//virtual int Load(void *)=0;
 	virtual int Reset()=0;
 } ICore;
 
-
-typedef struct{
+typedef struct __ICpuTimerObj : public IObject{
 	virtual int Run(u8 *,int)=0;
 } ICpuTimerObj;
 
@@ -55,12 +183,14 @@ struct _timerobj;
 
 typedef struct _timerobj{
 	ICpuTimerObj *obj;
-	u32 elapsed,cyc;
+	u32 elapsed,cyc,type;
 	struct _timerobj *last,*next;
 } CPUTIMEROBJ,*LPCPUTIMEROBJ;
 
-typedef s32(IObject::*CoreCallback)(s32);
-typedef s32(IObject::*CoreMACallback)(u32,pvoid,pvoid,u32);
+typedef struct {}IObjectCallee;
+
+typedef s32(ICore::*CoreCallback)(s32);
+typedef s32(ICore::*CoreMACallback)(u32,pvoid,pvoid,u32);
 
 typedef struct{
 	u32 size;
@@ -89,7 +219,7 @@ typedef struct{
 				};
 				u64 a;
 			};
-			GtkWidget *w;
+			HWND w;
 			u64 res;
 		};
 	};
@@ -98,6 +228,21 @@ typedef struct{
 		u32 id;
 	};
 } DEBUGGERPAGE,*LPDEBUGGERPAGE;
+
+
+
+class FileStream : public IStreamer{
+public:
+	FileStream();
+	virtual ~FileStream();
+	virtual int Read(void *,u32,u32 *o=0);
+	virtual int Write(void *,u32,u32 *o=0);
+	virtual int Close();
+	virtual int Seek(s64,u32);
+	virtual int Open(char *,u32 a=0);
+protected:
+	FILE *fp;
+};
 
 class Runnable{
 public:
@@ -110,7 +255,8 @@ public:
 	virtual void Run();
 	void addStatus(u64 v){_status |= v;};
 	int hasStatus(u64 v){return (_status & v) != 0;};
-	void clearStatus(u64 v){_status &=  ~v;}
+	void clearStatus(u64 v){_status &= ~v;};
+	I_INLINE u64 getStatus(){return _status;};
 	enum : u32{
 		QUIT=S_QUIT,
 		PLAY=S_RUN,
@@ -118,7 +264,7 @@ public:
 	};
 protected:
 	void _set_time(u32);
-	u32 _cr;
+	CRITICAL_SECTION _cr;
 private:
 	u64 _status;
 	u32 _sleep;
@@ -157,6 +303,9 @@ private:
 #define ICORE_QUERY_CPU_MEMORY			22
 #define ICORE_QUERY_CPU_STATUS			23
 #define ICORE_QUERY_ADD_WAITABLE_OBJ	80
+#define ICORE_QUERY_NEW_WAITABLE_OBJECT	81
+#define ICORE_QUERY_CPU_TICK			24
+#define ICORE_QUERY_CPU_INDEX			25
 
 #define ICORE_QUERY_DBG_PAGE				0x101
 #define ICORE_QUERY_DBG_PAGE_INFO			0x104
@@ -172,18 +321,20 @@ private:
 #define ICORE_QUERY_GPIO_PINS				0x201
 #define ICORE_QUERY_GPIO_STATUS				0x202
 
+#define ICORE_QUERY_CURRENT_SCANLINE		0x8001
+#define ICORE_QUERY_CURRENT_FRAME			0x8002
 
-#define ICORE_QUERY_BREAKPOINT_ENUM 	0xff01
-#define ICORE_QUERY_BREAKPOINT_ADD		0xff02
-#define ICORE_QUERY_BREAKPOINT_DEL		0xff03
-#define ICORE_QUERY_BREAKPOINT_STATE	0xff04
-#define ICORE_QUERY_BREAKPOINT_INFO		0xff05
-#define ICORE_QUERY_BREAKPOINT_INDEX	0xff06
-#define ICORE_QUERY_BREAKPOINT_LOAD		0xff10
-#define ICORE_QUERY_BREAKPOINT_SAVE		0xff11
-#define ICORE_QUERY_BREAKPOINT_CLEAR	0xff12
-#define ICORE_QUERY_BREAKPOINT_RESET	0xff13
-#define ICORE_QUERY_BREAKPOINT_COUNT	0xff14
+#define ICORE_QUERY_BREAKPOINT_ENUM 		0xff01
+#define ICORE_QUERY_BREAKPOINT_ADD			0xff02
+#define ICORE_QUERY_BREAKPOINT_DEL			0xff03
+#define ICORE_QUERY_BREAKPOINT_STATE		0xff04
+#define ICORE_QUERY_BREAKPOINT_INFO			0xff05
+#define ICORE_QUERY_BREAKPOINT_INDEX		0xff06
+#define ICORE_QUERY_BREAKPOINT_LOAD			0xff10
+#define ICORE_QUERY_BREAKPOINT_SAVE			0xff11
+#define ICORE_QUERY_BREAKPOINT_CLEAR		0xff12
+#define ICORE_QUERY_BREAKPOINT_RESET		0xff13
+#define ICORE_QUERY_BREAKPOINT_COUNT		0xff14
 #define ICORE_QUERY_BREAKPOINT_MEM_ADD		0xff20
 
 #define ICORE_QUERY_SET_DEVICES				0x10001
@@ -210,6 +361,6 @@ private:
 #define AM_DWORD 	0x10
 #define AM_READ 	0
 #define AM_WRITE 	0x1
-
+#define AM_DMA		0x80
 
 #endif

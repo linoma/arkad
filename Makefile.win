@@ -1,8 +1,10 @@
-CC=g++
-PKGCONFIG = $(shell which pkg-config)
-INCLUDE_DIR=-I.
+TOOL_PREFIX=x86_64-w64-mingw32-
+CC=$(TOOL_PREFIX)g++
+WRES=$(TOOL_PREFIX)windres
+OBJCOPY=$(TOOL_PREFIX)objcopy
+INCLUDE_DIR=-I. -Ires -Ilibs/zlib
 LIB_DIR=
-TARGET=arkad
+TARGET=arkad.exe
 
 CF=-fauto-inc-dec -fbranch-count-reg -fcombine-stack-adjustments -fcompare-elim -fcprop-registers -fdce -fdefer-pop
 CF+=-fdse -fforward-propagate -fguess-branch-probability -fif-conversion -fif-conversion2 -finline-functions-called-once
@@ -20,50 +22,44 @@ CF+=-fdevirtualize-speculatively -fexpensive-optimizations
 #CFLAGS+=-fno-move-loop-stores
 #CF+=-fno-omit-frame-pointer
 #CF=-O3 -fno-omit-frame-pointer
-CF+=-O0 -fpermissive
-CF=-g2 -fpermissive -DLOGLEVEL=9 -D_DEVELOP
-CF+=-D_DEBUG -Wno-deprecated-declarations
+CF+=-s -fpermissive -mwindows -D_WIN32_WINNT=0x501 -D_DEBUG
+# CF=-g -fpermissive -D_DEBUG -DLOGLEVEL=9 -D_DEVELOP -Wno-deprecated-declarations
 
-GTK_LIBS=$(shell $(PKGCONFIG) --libs gtk+-3.0 gmodule-2.0)
-LIBS=-lm $(GTK_LIBS) -lpthread -lasound
+#CF+=-Wfatal-errors
+LIBS=-lm -lcomctl32 -lgdi32 -lole32
 
-SUBDIR=cpu gfx audio machine res device
+SUBDIR=cpu gfx audio machine device
 SOURCES=$(wildcard *.cpp $(foreach fd, $(SUBDIR), $(fd)/*.cpp))
-SOURCES+=$(wildcard *.glade $(foreach fd, $(SUBDIR), $(fd)/*.glade))
+SOURCES+=$(wildcard *.rc $(foreach fd, $(SUBDIR), $(fd)/*.rc))
 SOURCES+=$(wildcard *.bin $(foreach fd, $(SUBDIR), $(fd)/*.bin))
-SOURCES+=$(wildcard *.xpm $(foreach fd, $(SUBDIR), $(fd)/*.xpm))
-OBJDIR=./obj
+#SOURCES=main.cpp
+OBJDIR=./objw
 CPPOBJ=$(patsubst %.cpp,$(OBJDIR)/%.o, $(SOURCES))
-OBJ=$(patsubst %.xpm,$(OBJDIR)/%.o, $(patsubst %.xpm,$(OBJDIR)/%.o, $(patsubst %.glade,$(OBJDIR)/%.o, $(CPPOBJ))))
+OBJ=$(patsubst %.bin,$(OBJDIR)/%.o, $(patsubst %.rc,$(OBJDIR)/%.o, $(CPPOBJ)))
 INCLUDE_DIR+=$(patsubst %,-I%, $(SUBDIR))
 
 #OBJ=$(addprefix $(OBJDIR)/, $(SOURCES:glade=o))
 
 DEPS=$(wildcard *.h $(foreach fd, $(SUBDIR), $(fd)/*.h))
-DEPS+=$(wildcard *.inc $(foreach fd, $(SUBDIR), $(fd)/*.inc))
 #DEPS+=$(wildcard *.inc $(foreach fd, $(SUBDIR), $(fd)/*.inc))
-CFLAGS= $(shell $(PKGCONFIG) --cflags gtk+-3.0) $(INCLUDE_DIR) $(LIB_DIR) $(CF)
+CFLAGS= $(INCLUDE_DIR) $(LIB_DIR) $(CF)
 
 $(OBJDIR)/%.o: %.c* $(DEPS)
 	@echo "Compiling "$<
 	@mkdir -p $(@D)
 	@$(CC) -c -o $@ $< $(CFLAGS)
 
-define BINARY =
-	@echo "Building binary "$(2)
-	@mkdir -p $(3)
-	@objcopy -B i386 -I binary -O elf64-x86-64 $(1) $(2)
-endef
+$(OBJDIR)/%.o: %.rc
+	@echo "Building "$@
+	@$(WRES) --include-dir="res" $< $@
 
-$(OBJDIR)/%.o: %.glade
-	$(call BINARY,$<,$@,$(@D))
-
-$(OBJDIR)/%.o: %.xpm
-	$(call BINARY,$<,$@,$(@D))
+$(OBJDIR)/%.o: %.bin
+	@echo "Building "$@
+	@$(OBJCOPY) -B i386 -I binary -O elf64-x86-64 $< $@
 
 $(TARGET): $(OBJ)
 	@echo "Linking "$@
-	@$(CC) -o $@ $^ $(CFLAGS) $(LIBS) -rdynamic -export-dynamic
+	@$(CC) -o $@ $^ $(CFLAGS) $(LIBS) -Wl,--subsystem,windows -static-libgcc -static-libstdc++
 
 .PHONY: clean
 

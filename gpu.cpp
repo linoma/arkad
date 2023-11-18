@@ -5,6 +5,14 @@
 
 extern GUI gui;
 
+#ifdef __WIN32__
+#define CR 2
+#define CB 0
+#else
+#define CR 0
+#define CB 2
+#endif
+
 GPU::GPU(){
 	_bit=NULL;
 	_screen=NULL;
@@ -13,54 +21,80 @@ GPU::GPU(){
 	_x_inc=_y_inc=4096;
 	_width=_height=0;
 	InitializeCriticalSection(&_cr);
+#ifdef __WIN32__
+	hdc=NULL;
+#else
+	_window=0;
+	_cairoRegion=NULL;
+#endif
 }
 
 GPU::~GPU(){
 	Destroy();
 }
 
-int GPU::Draw(cairo_t* cr){
-	cairo_t* _ca;
-	GdkWindow *window;
-	cairo_region_t *cairoRegion;
-	GdkDrawingContext *drawingContext;
+int GPU::Draw(HDC cr){
 	int res;
+	HDC _ca;
 
 	res=-1;
 	EnterCriticalSection(&_cr);
 	if(_bit == NULL || _win==NULL)
 		goto A;
+#ifdef __WIN32__
+	if(!(_ca=cr)){
+		RECT rc;
+
+		_ca=GetDC(gui._getDisplay());
+		gui.GetClientSize(&rc);
+		SetWindowOrgEx(_ca,0,-rc.top,NULL);
+	}
+	BitBlt(_ca,0,0,_displayWidth,_displayHeight,hdc,0,0,SRCCOPY);
+	if(!cr)
+		ReleaseDC(gui._getDisplay(),_ca);
+#else
+	GdkDrawingContext *drawingContext;
+
 	//cr=NULL;
 	drawingContext=NULL;
-	cairoRegion=NULL;
 	if(!(_ca=cr)){
-		if(!(window = gtk_widget_get_window( GTK_WIDGET(_win) )))
+		if(!_window && !(_window = gtk_widget_get_window(GTK_WIDGET(_win))))
 			goto A;
-		if(!(cairoRegion = cairo_region_create()))
+		if(!_cairoRegion && !(_cairoRegion = cairo_region_create()))
 			goto B;
-		if(!(drawingContext = gdk_window_begin_draw_frame( window, cairoRegion )))
+		if(!(drawingContext = gdk_window_begin_draw_frame(_window, _cairoRegion)))
 			goto B;
-		_ca = gdk_drawing_context_get_cairo_context( drawingContext );
+		_ca = gdk_drawing_context_get_cairo_context(drawingContext);
 		if(!_ca)
 			goto B;
 	}
 	gdk_cairo_set_source_pixbuf (_ca, _bit, 0,0);
-	cairo_paint (_ca);
+	cairo_paint(_ca);
 B:
 	if(!cr){
 		if(drawingContext)
-			gdk_window_end_draw_frame(window, drawingContext );
-		if(cairoRegion)
-			cairo_region_destroy(cairoRegion );
+			gdk_window_end_draw_frame(_window, drawingContext );
 	}
 	res=0;
+#endif
 A:
 	LeaveCriticalSection(&_cr);
 	return res;
 }
+#define STPIXEL(p1,r,g,b,br){\
+	register u32  c__=SR((r)*br,7);\
+	if(c__>255)  c__=255;\
+	p1[CR]=c__;\
+	c__=SR((g)*br,7);\
+	if(c__>255)  c__=255;\
+	p1[1]=c__;\
+	c__=SR((b)*br,7);\
+	if(c__>255)  c__=255;\
+	p1[CB]=c__;\
+}
 
 int GPU:: Update(){
-	int bytes_perline,res,x,y;
+	int res,x,y;
 	char *p,*p1,*po;
 	u16 *ps;
 	u32 xx,yy;
@@ -71,21 +105,19 @@ int GPU:: Update(){
 		goto A;
 	res--;
 	//g_object_ref(_bit);
-	if((p = po=(char *)gdk_pixbuf_get_pixels(_bit)) == NULL)
+	if((p = po=(char *)_bits) == NULL)
 		goto B;
-	bytes_perline = gdk_pixbuf_get_rowstride(_bit);
 	ps = (u16 *)_screen;
 	y=x=xx=yy=0;
-	if(!BT(_gpu_status,SL((u64)1,63))) goto C;
-
+	if(!BT(_gpu_status,SL((u64)1,63)))
+		goto C;
+	//mmultisalple
 	ps = (u16 *)_screen;
 	p1=p;
 	for(x=xx=0,xx+=_x_inc;x<_displayWidth;x++,p1+=3,xx+=_x_inc){
 		u32 c = ps[SR(xx,12)];
 
-		p1[0]=SL(c&31,3);
-		p1[1]=SR(c&0x3e0,2);
-		p1[2]=SR(c&0x7c00,7);
+		STPIXEL(p1,SL(c&31,3),SR(c&0x3e0,2),SR(c&0x7c00,7),128);
 	}
 
 	y++;
@@ -106,9 +138,8 @@ int GPU:: Update(){
 		int g=SR(c&0x3e0,2);
 		int b=SR(c&0x7c00,7);
 
-		p1[0]=r;
-		p1[1]=g;
-		p1[2]=b;
+		STPIXEL(p1,r,g,b,128);
+
 		p1+=3;
 
 		for(x=1,xx+=_x_inc;x<_displayWidth-1;x++,p1+=3,xx+=_x_inc){
@@ -146,9 +177,7 @@ int GPU:: Update(){
 			if((g=SR(g,3))>255)  g=255;
 			if((b=SR(b,3))>255)  b=255;
 
-			p1[0]=r;
-			p1[1]=g;
-			p1[2]=b;
+			STPIXEL(p1,r,g,b,128);
 		}
 		c = ps[SR(xx,12)];
 
@@ -156,9 +185,7 @@ int GPU:: Update(){
 		g=SR(c&0x3e0,2);
 		b=SR(c&0x7c00,7);
 
-		p1[0]=r;
-		p1[1]=g;
-		p1[2]=b;
+		STPIXEL(p1,r,g,b,128);
 	}
 
 	ps = (u16 *)_screen + SR(yy,12) * _width;
@@ -166,13 +193,11 @@ int GPU:: Update(){
 	for(x=xx=0,xx+=_x_inc;x<_displayWidth;x++,p1+=3,xx+=_x_inc){
 		u32 c = ps[SR(xx,12)];
 
-		p1[0]=SL(c&31,3);
-		p1[1]=SR(c&0x3e0,2);
-		p1[2]=SR(c&0x7c00,7);
+		STPIXEL(p1,SL(c&31,3),SR(c&0x3e0,2),SR(c&0x7c00,7),128);
 	}
 	goto B;
 C:
-
+	//no multisaple
 	for(;y<_displayHeight;y++,yy+=_y_inc,p+=bytes_perline){
 		p1=p;
 		ps = (u16 *)_screen + SR(yy,12) * _width;
@@ -180,9 +205,7 @@ C:
 		for(x=0;x<_displayWidth;x++,p1+=3,xx+=_x_inc){
 			u32 c = ps[SR(xx,12)];
 
-			p1[0]=SL(c&31,3);
-			p1[1]=SR(c&0x3e0,2);
-			p1[2]=SR(c&0x7c00,7);
+			STPIXEL(p1,SL(c&31,3),SR(c&0x3e0,2),SR(c&0x7c00,7),128);
 		}
 	}
 B:
@@ -201,15 +224,39 @@ int GPU::CreateBitmap(int w,int h){
 
 	if(_displayWidth == w && _displayHeight==h)
 		return 1;
-//	printf("new size %d %d\n",w,h);
 	res=-1;
 	EnterCriticalSection(&_cr);
+#ifdef __WIN32__
+	BITMAP bm;
+	HDC dc;
+
+	dc=CreateCompatibleDC(NULL);
+	memset(&bminfo,0,sizeof(BITMAPINFO));
+	bminfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+	bminfo.bmiHeader.biWidth = w;
+	bminfo.bmiHeader.biHeight = -h;
+	bminfo.bmiHeader.biPlanes = 1;
+	bminfo.bmiHeader.biBitCount = 24;
+	bminfo.bmiHeader.biCompression = BI_RGB;
+	bit = CreateDIBSection(dc,&bminfo,DIB_RGB_COLORS,(LPVOID *)&_bits,NULL,0);
+	if(!bit)
+		goto A;
+	DestroyBitmap();
+	_bit=bit;
+	hdc=dc;
+	GetObject(_bit,sizeof(BITMAP),&bm);
+	bytes_perline = bm.bmWidthBytes;
+	SelectObject(hdc,_bit);
+#else
 	bit=gdk_pixbuf_new(GDK_COLORSPACE_RGB,false,8,w,h);
 	if(!bit)
 		goto A;
 	DestroyBitmap();
 	_bit=bit;
-	//printf("ook\n");
+	gdk_pixbuf_fill(bit,0);
+	_bits = gdk_pixbuf_get_pixels(_bit);
+	bytes_perline = gdk_pixbuf_get_rowstride(_bit);
+#endif
 	_displayWidth=w;
 	_displayHeight=h;
 	_x_inc = SL(_width,12) / _displayWidth;
@@ -222,7 +269,14 @@ A:
 
 int GPU::DestroyBitmap(){
 	if(_bit)
+#ifdef __WIN32__
+		DeleteObject(_bit);
+	if(hdc)
+		::DeleteDC(hdc);
+	hdc=NULL;
+#else
 		g_object_unref(_bit);
+#endif
 	_bit=NULL;
 	return 0;
 }
@@ -232,21 +286,18 @@ int GPU::Init(int w,int h,int ww,int hh,int wb,int hb){
 	_vblank=_height=h;
 	_win=gui._getDisplay();
 	if(ww==-1 || hh==-1){
-		GtkAllocation al;
+		RECT rc;
 
-		gtk_widget_get_allocation(_win,&al);
-		if(ww==-1)
-			ww=al.width;
-		if(hh==-1)
-			hh=al.height;
+		rc.right=rc.bottom=-1;
+		gui.GetClientSize(&rc);
+		ww=rc.right-rc.left;
+		hh=rc.bottom-rc.top;
 	}
-
 	CreateBitmap(ww,hh);
 	if(wb!=-1)
-	_hblank=wb-_hblank;
+		_hblank=wb-_hblank;
 	if(hb!=-1)
 		_vblank=hb-_vblank;
-
 	if(stoi(gui["antialias"]))
 		_gpu_status |= (u64)1 << 63;
 	return 0;
@@ -262,5 +313,17 @@ int GPU::Destroy(){
 	if(_screen)
 		free(_screen);
 	_screen=NULL;
+#ifndef __WIN32__
+	if(_cairoRegion)
+		cairo_region_destroy(_cairoRegion);
+	_cairoRegion=NULL;
+	_window=NULL;
+#endif
+	return 0;
+}
+
+int GPU::LoadSettings(void * &v){
+	map<string,string> &m=(map<string,string> &)v;
+	//_pcm_sync=stoi(m["pcm_sync"]);
 	return 0;
 }
