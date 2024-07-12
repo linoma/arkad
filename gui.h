@@ -21,8 +21,9 @@ public:
 	virtual int Reset();
 #ifdef __WIN32__
 	I_INLINE HWND _getDisplay(){return _getWindow();};
+	HDC _getDC(u32 flags=0);
 #else
-	I_INLINE HWND _getDisplay(){return GetDlgItem(_window,RES(1001));};
+	I_INLINE HWND _getDisplay(){return _windowDrawArea;};
 #endif
 	I_INLINE HWND _getWindow(){return _window;};
 
@@ -54,8 +55,9 @@ protected:
 private:
 #ifdef __WIN32__
 	ATOM classId;
-	HWND  hwndStatus,hwndTool;
-	HIMAGELIST hImageList;
+	HWND hwndStatus,hwndTool;
+	HIMAGELIST hImageList[2];
+	HDC hDC;
 
 	static gint OnKeyEvent(HWND w,WPARAM,LPARAM);
 	static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -66,8 +68,8 @@ private:
 #endif
 	int _resize_drawing_area(int &w,int &h);
 	guint key_snooper;
-	HWND _window;
-	u16 _keys[20];
+	HWND _window,_windowDrawArea;
+	u16 _keys[50];
 	struct{
 		int x,y,ox,oy,oxd,oyd;
 	} _mouse;

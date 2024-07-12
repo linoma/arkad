@@ -30,11 +30,12 @@ public:
 
 	virtual s32 fn_mem_w(u32 a,pvoid,pvoid data,u32);
 	virtual s32 fn_mem_r(u32 a,pvoid,pvoid data,u32);
+	virtual int OnChangeIRQ(u32,u32 *);
 
 	const int BGRAM_BANKS=4;
 	const int BGRAM_BANK_SIZE=0x1000;
 private:
-	u32 _last_frame,_active_cpu;
+	u32 _active_cpu,_bank;
 };
 
 };

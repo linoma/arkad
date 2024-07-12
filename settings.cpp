@@ -9,14 +9,15 @@ HWND Settings::hwndPropertySheet=0;
 
 Settings::Settings(){
 	_items.insert({"antialias","1"});
-	u16 a[]={GDK_KEY_Up,GDK_KEY_Down,GDK_KEY_Left,GDK_KEY_Right,'a','s','q','p','w','z','x','o','l','k','m','n','1','2','3','4',0};
+	u16 a[]={GDK_KEY_Up,GDK_KEY_Down,GDK_KEY_Left,GDK_KEY_Right,'a','s','q','w','z','x','p','o','l','k','m','n','1','2','3','4',0};
 	_items.insert({"keys",string((char *)a,sizeof(a))});
 	_items.insert({"frameskip","-1"});
 	_items.insert({"pcm_buffer_size","3"});
-	_items.insert({"pcm_sync","1"});
+	_items.insert({"pcm_sync","0"});
 	_items.insert({"fps_sync","1"});
 	_items.insert({"width","384"});
 	_items.insert({"height","224"});
+	_items.insert({"zoom","1"});
 }
 
 Settings::~Settings(){

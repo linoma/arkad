@@ -34,6 +34,9 @@
 #define M_EEPROM	(&_mem[MI_EEPROM])
 #define M_SSRAM		(&_mem[MI_SSRAM])
 
+#define MMA__(a,b,c) 	(((a)>=b && (a)<=c) || ((a)>=(0x20000000|b)	&& (a)<=(0x20000000|c)))
+#define MMA_(a,b,c)  	if MMA__(a,b,c)
+
 #define BIOS_(a) MA_(a,0,0x7ffff)
 #define BIOS_R(a,b) BIOS_(a){b=&M_BIOS[(a)&0x7ffff];}
 #define BIOS_W(a,b) BIOS_(a){b=NULL;LOGD("MEM bios write %x %x\n",a,_pc);}

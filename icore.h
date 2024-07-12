@@ -11,6 +11,30 @@ typedef signed short s16;
 typedef signed int s32;
 typedef void *pvoid;
 
+struct u128{
+	union{
+		struct{
+			u64 lo,hi;
+		};
+		u64 v64[2];
+		u32 v32[4];
+	};
+	u128(){lo=hi=0;}
+	u128(u64 a){lo=a;hi=0;};
+};
+
+struct s128{
+	union{
+		struct{
+			s64 lo,hi;
+		};
+		s64 v64[2];
+		s32 v32[4];
+	};
+	s128(){lo=hi=0;}
+	s128(s64 a){lo=a;hi=0;};
+};
+
 #ifdef __WIN32__
 
 typedef HANDLE				pthread_t;
@@ -89,6 +113,7 @@ typedef u32				CRITICAL_SECTION;
 
 typedef void * 			HANDLE;
 typedef HANDLE			HINSTANCE;
+typedef HANDLE          HLOCAL;
 
 typedef unsigned char 	BOOL;
 typedef unsigned long 	LONG;
@@ -103,6 +128,19 @@ typedef struct{
 } RECT,*LPRECT;
 
 #define ZeroMemory(a,b) memset(a,0,b)
+#define DeleteObject(a) g_object_unref(a)
+#define LocalFree(a) free(a)
+#define LocalAlloc(a,b) calloc(1,b)
+#define CopyMemory(a,b,c) 				memcpy(a,b,c)
+#define FillMemory(a,b,c)				memset(a,c,b)
+#define wsprintf					   	sprintf
+#define lstrlen							strlen
+#define lstrcpy             		    strcpy
+#define lstrcpyn(a,b,c)		            strncpy(a,b,c-1)
+#define lstrcmp				            strcmp
+#define lstrcmpi						strcasecmp
+ #define wvsprintf			            vsprintf
+#define lstrcat                         strcat
 
 #define CREATE_NEW          	        1
 #define CREATE_ALWAYS       	        2
@@ -110,19 +148,31 @@ typedef struct{
 #define OPEN_ALWAYS         	        4
 #define TRUNCATE_EXISTING   	        5
 
- #define GENERIC_READ                     (0x80000000L)
+#define FILE_BEGIN           			SEEK_SET
+#define FILE_CURRENT         			SEEK_CUR
+#define FILE_END             			SEEK_END
+
+#define GENERIC_READ                     (0x80000000L)
 #define GENERIC_WRITE                    (0x40000000L)
 #define GENERIC_EXECUTE                  (0x20000000L)
 #define GENERIC_ALL                      (0x10000000L)
+
+#define LPTR	0
+#define LMEM_ZEROINIT	0
 
 #endif
 
 #define I_INLINE	inline
 
-#define SWAP32(v) asm volatile("bswap %0\n":"=m"(v):"r"(v));
-
 #define SR(a,b) ((a)>>(b))
 #define SL(a,b) ((a)<<(b))
+
+#define ROR(a,b) ((u32)(SL((u32)a,(32-b))|SR((u32)a,b)))
+#define ROL(a,b) ((u32)(SR((u32)a,(32-b))|SL((u32)a,b)))
+
+#define SWAP32(a) ((u32)(SL((u32)a,16)|SR((u32)a,16)))
+#define SWAP16(a) ((u16)(SL((u16)a,8)|SR((u16)a,8)))
+#define BELE32(a) (((u8)a <<24)|((a&0xff00)<<8) | ((a&0xff000000)>>24) | ((a&0xff0000)>>8))
 
 #define BV(a) SL(1,(a))
 #define BC(a,b) ((a) &= ~(b))
@@ -134,18 +184,18 @@ typedef struct{
 #define BVS(a,b) BS(a,BV(b))
 
 #define MA__(a,b,c) 	((a)>=b && (a)<=c)
-#define MMA__(a,b,c) 	(((a)>=b && (a)<=c) || ((a)>=(0x20000000|b)	&& (a)<=(0x20000000|c)))
 #define MA_(a,b,c)  	if MA__(a,b,c)
-#define MMA_(a,b,c)  	if MMA__(a,b,c)
 #define MAE_ else
 
-#define S_QUIT			BV(0)
-#define S_INIT			BV(1)
-#define S_RUN			BV(2)
-#define S_PAUSE			BV(3)
-#define S_DEBUG_NEXT 	BV(4)
+#define S_QUIT				BV(0)
+#define S_INIT				BV(1)
+#define S_RUN				BV(2)
+#define S_PAUSE				BV(3)
+#define S_DEBUG_NEXT 		BV(4)
+#define S_DEBUG_NEXT_FRAME 	BV(5)
 
 #define S_DEBUG			BV(8)
+#define S_LOG			BV(9)
 #define S_LOAD			BV(16)
 #define S_DEBUG_UPDATE	BV(17)
 
@@ -164,6 +214,7 @@ typedef struct{
 	virtual int Close()=0;
 	virtual int Seek(s64,u32)=0;
 	virtual int Open(char *,u32 a=0)=0;
+	virtual int Tell(u64 *)=0;
 } IStreamer;
 
 typedef struct : public IObject{
@@ -176,14 +227,16 @@ typedef struct : public IObject{
 } ICore;
 
 typedef struct __ICpuTimerObj : public IObject{
-	virtual int Run(u8 *,int)=0;
+	virtual int Run(u8 *,int,void *)=0;
 } ICpuTimerObj;
 
 struct _timerobj;
 
 typedef struct _timerobj{
+	_timerobj(){type=0;elapsed=0;cyc=0;last=next=NULL;};
 	ICpuTimerObj *obj;
 	u32 elapsed,cyc,type;
+	void *param;
 	struct _timerobj *last,*next;
 } CPUTIMEROBJ,*LPCPUTIMEROBJ;
 
@@ -191,17 +244,19 @@ typedef struct {}IObjectCallee;
 
 typedef s32(ICore::*CoreCallback)(s32);
 typedef s32(ICore::*CoreMACallback)(u32,pvoid,pvoid,u32);
+typedef int(ICore::*CoreDecode)();
+typedef int(ICore::*CoreDisassebler)(char *);
 
 typedef struct{
-	u32 size;
+	u16 size,group;
 	union{
 		u32 attributes;
 		struct{
-			int type:4;
-			int popup:1;
-			int editable:1;
-			int clickable:1;
-			int message:1;
+			unsigned int type:4;
+			unsigned int popup:1;
+			unsigned int editable:1;
+			unsigned int clickable:1;
+			unsigned int message:1;
 		};
 	};
 	union{
@@ -229,9 +284,14 @@ typedef struct{
 	};
 } DEBUGGERPAGE,*LPDEBUGGERPAGE;
 
+typedef struct{
+	u32 size;
+	u64 _editAddress,_lastAccessAddress,_dumpAddress;
+	u8 _dumpMode;
+	u32 _dumpLength,_dumpLines;
+} DEBUGGERDUMPINFO,*LPDEBUGGERDUMPINFO;
 
-
-class FileStream : public IStreamer{
+class FileStream : public IStreamer,public IObject{
 public:
 	FileStream();
 	virtual ~FileStream();
@@ -240,14 +300,16 @@ public:
 	virtual int Close();
 	virtual int Seek(s64,u32);
 	virtual int Open(char *,u32 a=0);
+	virtual int Tell(u64 *);
+
+	virtual int Query(u32,void *){return -1;};
 protected:
 	FILE *fp;
 };
 
 class Runnable{
 public:
-	Runnable();
-	Runnable(int);
+	Runnable(int n=250*1000);
 	virtual ~Runnable();
 	virtual void OnRun()=0;
 	virtual int Create();
@@ -306,17 +368,22 @@ private:
 #define ICORE_QUERY_NEW_WAITABLE_OBJECT	81
 #define ICORE_QUERY_CPU_TICK			24
 #define ICORE_QUERY_CPU_INDEX			25
+#define ICORE_QUERY_SET_FILENAME		26
+#define ICORE_QUERY_MEMORY_WRITE		27
+#define ICORE_QUERY_MEMORY_READ			28
+
 
 #define ICORE_QUERY_DBG_PAGE				0x101
 #define ICORE_QUERY_DBG_PAGE_INFO			0x104
 #define ICORE_QUERY_DBG_PAGE_EVENT			0x105
 #define ICORE_QUERY_DBG_PAGE_COORD_TO_ADDRESS		0x106
 
-#define ICORE_QUERY_DBG_DUMP_ADDRESS		0x122
-#define ICORE_QUERY_DBG_DUMP_FORMAT			0x123
-
 #define ICORE_QUERY_DBG_MENU				0x180
 #define ICORE_QUERY_DBG_MENU_SELECTED		0x181
+
+#define ICORE_QUERY_DBG_PALETTE				0x182
+#define ICORE_QUERY_DBG_OAM					0x183
+#define ICORE_QUERY_DBG_LAYER					0x184
 
 #define ICORE_QUERY_GPIO_PINS				0x201
 #define ICORE_QUERY_GPIO_STATUS				0x202
@@ -335,32 +402,38 @@ private:
 #define ICORE_QUERY_BREAKPOINT_CLEAR		0xff12
 #define ICORE_QUERY_BREAKPOINT_RESET		0xff13
 #define ICORE_QUERY_BREAKPOINT_COUNT		0xff14
-#define ICORE_QUERY_BREAKPOINT_MEM_ADD		0xff20
+
 
 #define ICORE_QUERY_SET_DEVICES				0x10001
 #define ICORE_QUERY_SET_GPIO_PINS			0x10040
 #define ICORE_QUERY_SET_REGISTER			0x1fe01
 #define ICORE_QUERY_SET_PC					0x1fe02
 #define ICORE_QUERY_SET_BREAKPOINT_STATE	0x1fe03
-#define ICORE_QUERY_BREAKPOINT_SET			0x1fe04
+#define ICORE_QUERY_SET_BREAKPOINT			0x1fe04
 #define ICORE_QUERY_SET_STATUS				0x1fe05
 
 #define ICORE_QUERY_SET_MACHINE				0x1Fe20
 #define ICORE_QUERY_SET_LOCATION			0x1fe15
-#define ICORE_QUERY_SET_LAST_ADDRESS		0x1fe17
 
 #define ICORE_MESSAGE_POPUP_INIT			GDK_EVENT_LAST+1
 #define ICORE_MESSAGE_MENUITEM_SELECT		GDK_EVENT_LAST+2
 
-#define DEBUG_BREAK_IRQ		0x8000000000000000
-#define DEBUG_BREAK_OPCODE	0x1000000000000000
-#define DEBUG_LOG_DEV		0x0100000000000000
+#define ISTREAM_QUERY_SET_BLOK_SIZE			0x20000|1
+
+#define DEBUG_BREAK_IRQ						0x8000000000000000
+#define DEBUG_BREAK_OPCODE					0x1000000000000000
+#define DEBUG_BREAK_DEVICE					0x2000000000000000
+#define DEBUG_BREAK_VBLANK					0x4000000000000000
+#define DEBUG_LOG_DEV						0x0100000000000000
 
 #define AM_BYTE		0x40
 #define AM_WORD 	0x20
 #define AM_DWORD 	0x10
+#define AM_QWORD 	0x90
+#define AM_LWORD 	0x80
+
 #define AM_READ 	0
 #define AM_WRITE 	0x1
-#define AM_DMA		0x80
+#define AM_DMA		0x2
 
 #endif

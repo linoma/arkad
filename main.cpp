@@ -7,7 +7,8 @@ GUI gui;
 IMachine *machine=NULL;
 ICore *cpu=NULL;
 
-u32 __cycles,__data;
+u32 __cycles,__line,__frame,__address;
+u64 __data;
 int _error_level=1;//LOGLEVEL;
 
 #ifdef __WIN32__
@@ -32,6 +33,8 @@ int WINAPI WinMain(HINSTANCE h, HINSTANCE hPrev, LPSTR lpCmdLine, int nCmdShow){
 	INITCOMMONCONTROLSEX icc;
 	GDIPSTARTUPINPUT st={1,NULL,FALSE,FALSE};
 	LPVOID output;
+
+	freopen ("stdout.txt","w",stdout);
 
 	hInst = h;
 	ZeroMemory(&icc,sizeof(INITCOMMONCONTROLSEX));
@@ -68,6 +71,7 @@ int WINAPI WinMain(HINSTANCE h, HINSTANCE hPrev, LPSTR lpCmdLine, int nCmdShow){
 			GetProcAddress(hGdipLib,"GdipLoadImageFromStream");
    }
 #else
+
 int main(int argc, char *argv[]){
 	//freopen ("myfile.txt","w",stderr);
     gtk_init(&argc, &argv);
@@ -113,14 +117,25 @@ extern "C" gboolean on_paint (GtkWidget* self,cairo_t* cr,gpointer user_data){
 extern "C" void on_menuitem_select(GtkMenuItem* item,gpointer user_data){
 	gchar *name = (gchar *)gtk_widget_get_name(GTK_WIDGET(item));
 	u32 id = atoi(name);
+	//printf("%s %x\n",__FUNCTION__,id);
 	GtkWidget *p=gtk_menu_item_get_submenu(item);
-	if(!p)
+	if(!p){
+		if(GTK_IS_CHECK_MENU_ITEM(item)){
+			if(!gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(item)))
+				return;
+		}
 		gui.OnMenuItemSelect(id,item);
+	}
 	else
 		gui.OnPopupMenuInit(id,GTK_MENU_SHELL(p));
 }
 
 extern "C" gboolean on_mouse_up (GtkWidget* self, GdkEventButton *event,gpointer user_data){
+	gchar *name = (gchar *)gtk_widget_get_name(GTK_WIDGET(self));
+	if(name){
+		u32 id = atoi(name);
+		//gui.OnMouseMove(id,self,event->state,(int)event->x,(int)event->y);
+	}
 	return 0;
 }
 
@@ -187,13 +202,33 @@ extern "C" gboolean on_move_resize(GtkWidget *window, GdkEvent *event, gpointer 
 	return 0;
 }
 
+extern "C" gboolean on_scroll_event(GtkWidget *range,GdkEventScroll *e,gpointer user_data){
+	GtkScrollType scroll;
+	gpointer v;
+
+	if(user_data){
+		g_signal_emit_by_name(G_OBJECT(user_data),"scroll-event",e,&v);
+		return FALSE;
+	}
+	gchar *name = (gchar *)gtk_widget_get_name(GTK_WIDGET(range));
+	u32 id = atoi(name);
+	gui.OnScroll(id,GTK_WIDGET(range),scroll);
+	return FALSE;
+}
+
 extern "C" gboolean on_scroll_change(GtkRange *range,GtkScrollType scroll,gdouble value,gpointer user_data){
 	gchar *name = (gchar *)gtk_widget_get_name(GTK_WIDGET(range));
 	u32 id = atoi(name);
-	if(!GTK_IS_SCROLLBAR(range))
+	if(!GTK_IS_SCROLLBAR(range) && GTK_IS_BIN(range))
 		range = (GtkRange *)gtk_bin_get_child((GtkBin *)range);
 	gui.OnScroll(id,GTK_WIDGET(range),scroll);
 	return FALSE;
+}
+
+extern "C" void on_select_item (GtkTreeView  *item, GtkTreePath *path,  GtkTreeViewColumn *column, gpointer user_data){
+	gchar *name = (gchar *)gtk_widget_get_name(GTK_WIDGET(item));
+	u32 id = atoi(name);
+	gui.OnCommand(id,GDK_BUTTON_PRESS,GTK_WIDGET(item));
 }
 
 extern "C" gboolean on_change_page(GtkNotebook *notebook,GtkWidget *,gint arg1, gpointer user_data){
@@ -202,7 +237,6 @@ extern "C" gboolean on_change_page(GtkNotebook *notebook,GtkWidget *,gint arg1, 
 	if(name)
 		id=atoi(name);
 	u32 command=0;
-
 	GdkEvent *e=gtk_get_current_event();
 	if(e) command=e->type;
 	command |= SL(arg1,16);
@@ -212,12 +246,27 @@ extern "C" gboolean on_change_page(GtkNotebook *notebook,GtkWidget *,gint arg1, 
 	return FALSE;
 }
 
-extern "C" gboolean on_key_event (GtkWidget* self,GdkEventKey event,  gpointer user_data){
+extern "C" gboolean on_key_event (GtkWidget* w,GdkEventKey event,  gpointer user_data){
 	if(event.type==GDK_KEY_PRESS)
-		return gui.OnKeyDown(self,event.keyval,event.state);
+		return gui.OnKeyDown(w,event.keyval,event.state);
 	if(event.type==GDK_KEY_RELEASE)
-		return gui.OnKeyUp(self,event.keyval,event.state);
+		return gui.OnKeyUp(w,event.keyval,event.state);
 	return 0;
+}
+
+extern "C" void on_row_activaated (GtkTreeView  *widget, GtkTreePath *path, GtkTreeViewColumn *column, gpointer user_data){
+	gchar *name = (gchar *)gtk_widget_get_name(GTK_WIDGET(widget));
+	u32 id = (u32)-1;
+	if(name)
+		id=atoi(name);
+	u32 command=0;
+	GdkEvent *e=gtk_get_current_event();
+	if(e)
+		command=e->type;
+	//command |= SL(arg1,16);
+	gui.OnCommand(id,command,GTK_WIDGET(widget));
+	if(e)
+		gdk_event_free(e);
 }
 
 #endif
@@ -229,11 +278,6 @@ void EnterDebugMode(u64 v,u64 f){
 
 void OnMemoryUpdate(u32 a,u32 b,void *c){
 	gui.OnMemoryUpdate(a,b,(ICore *)c);
-}
-
-u64 isDebug(u64 v){
-	u64 vv = gui._getStatus();
-	return BT(vv,v) !=0;
 }
 
 void _log_printf(int level,const char *fmt,...){
@@ -255,4 +299,8 @@ A:
 	gui.putf(level,fmt,arg);
     va_end(arg);
    // GLOG(level,fmt);
+}
+
+u64 isDebug(u64 v){
+	return BT(gui._getStatus(),v);
 }

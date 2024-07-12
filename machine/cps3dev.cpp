@@ -1,14 +1,8 @@
 #include "cps3dev.h"
 #include "cps3.h"
 #include "cps3m.h"
+#include "game.h"
 
-#define DLOG(a,...){\
-	u32 pc;\
-	cpu->Query(ICORE_QUERY_PC,&pc);\
-	LOGF(a STR(\x20%x\x20%u\n),## __VA_ARGS__,pc,__cycles);\
-}
-
-static FILE *fp=0;
 
 namespace cps3{
 
@@ -37,10 +31,34 @@ int CPS3DEV::Destroy(){
 }
 
 int CPS3DEV::Init(CPS3M &g){
-	for(int i=0;i<8;i++)
-		_flashs[i]=new struct __flash(i);
-	_flashs[0]->_bus=1;
-	_flashs[1]->_bus=1;
+	u8 *m=&g._memory[MI_USER4];
+
+	for(int i=0;i<8;i++){
+		struct __flash *p=new struct __flash(i);
+		if(!p)
+			return -1;
+		p->init(m);
+		switch(i){
+			case 0:
+				m+=MB(8);
+			break;
+			case 1:
+				m=NULL;
+			break;
+			case 2:
+				m=&g._memory[MI_USER5];
+			break;
+			default:
+				m+=MB(16);
+			break;
+		}
+		_flashs[i]=p;
+	}
+
+	_flashs[0]->_bank=0;
+	_flashs[1]->_bank=0;
+
+	_flashs[2]->_enabled=0;
 
 	_char_dma._mem = &g._memory[MI_DUMMY+MI_CHRAM];
 	_palette_dma._mem = &g._memory[MI_DUMMY+MI_PRAM];
@@ -53,8 +71,7 @@ int CPS3DEV::Init(CPS3M &g){
 }
 
 int CPS3DEV::Reset(){
-	if(fp) fclose(fp);
-	fp=0;
+	_ports[0]=_ports[1]=0xffffffff;
 	_eeprom.reset();
 	_wdt._status=0;
 	_timer.Reset();
@@ -65,10 +82,13 @@ int CPS3DEV::Reset(){
 		if(_dmas[i])
 			_dmas[i]->_reset();
 	}
+
 	for(int i=0;i<8;i++){
 		if(_flashs[i])
 			_flashs[i]->reset();
 	}
+	_simm_bank=0;
+
 	return 0;
 }
 
@@ -262,7 +282,7 @@ u32 CPS3DEV::__char_dma::_decode6bpp(u8 v,u32 dst,u32 max_length){
 		_last_byte = v;
 		return 1;
 	}
-	int tranfercount = 0;
+	u32 tranfercount = 0;
 	for (int r= (v & 0x3f)+1;r;r--) {
 		((u8 *)_mem)[((dst+tranfercount)&0x7fffff) ^ 3] = (_last_byte & 0x3f);
 		tranfercount++;
@@ -274,10 +294,10 @@ u32 CPS3DEV::__char_dma::_decode6bpp(u8 v,u32 dst,u32 max_length){
 }
 
 void CPS3DEV::__palette_dma::_init(void *regs){
-	_src=MAKEWORD(PPU_REG16_(regs,0xa0),PPU_REG16_(regs,0xa2)&0x7ff);
-	_dst=MAKEWORD(PPU_REG16_(regs,0xa4),PPU_REG16_(regs,0xa6)&1);
-	_fade=MAKEWORD(SR(PPU_REG16_(regs,0xaa),1),PPU_REG16_(regs,0xa8)&0x7f);
-	_len=MAKEWORD(PPU_REG16_(regs,0xae),PPU_REG16_(regs,0xac)&1);
+	_src=MAKELONG(PPU_REG16_(regs,0xa0),PPU_REG16_(regs,0xa2)&0x7ff);
+	_dst=MAKELONG(PPU_REG16_(regs,0xa4),PPU_REG16_(regs,0xa6)&1);
+	_fade=MAKELONG(PPU_REG16_(regs,0xaa),PPU_REG16_(regs,0xa8));
+	_len=MAKELONG(PPU_REG16_(regs,0xae),PPU_REG16_(regs,0xac)&1);
 	//printf("pal %x %x %x %x\n",_src,_dst,_fade,_len);
 	//if(_src && _dst) EnterDebugMode();
 }
@@ -294,7 +314,7 @@ int CPS3DEV::__palette_dma::_transfer(){
 		cpu->Query(IMACHINE_QUERY_MEMORY_ACCESS,d);
 		src=(u16 *)*((void **)&d[1]);
 	}
-	//fprintf(stderr,"pal dma %x %x %x %x\t\t",_src,_dst,_len,_fade);
+//	printf("pal dma %x %x %x %x\t\t",_src,_dst,_len,_fade);
 	_src= SL(_src,1)-0x400000;
 	dst=(u16 *)_mem + _dst;
 	src =&src[SR(_src,1)];
@@ -302,25 +322,23 @@ int CPS3DEV::__palette_dma::_transfer(){
 		u16 coldata = src[i];
 
 		//coldata = (coldata << 8) | (coldata >> 8);
-		if(coldata & 0x8000)
-			printf("%x ",coldata);
-		unsigned int r = (coldata & 0x001F);
-		unsigned int g = (coldata & 0x03E0) >>  5;
-		unsigned int b = (coldata & 0x7C00) >> 10;
+		u32 r = (coldata & 0x001F);
+		u32 g = (coldata & 0x03E0) >>  5;
+		u32 b = (coldata & 0x7C00) >> 10;
 
 		if (_fade!=0) {
 			int fade;
 
-			fade = (_fade & 0xff000000)>>24;
-			r = SR(r*fade,8);
+			fade = (_fade & 0x3f000)>>12;
+			r = SR(r*fade,6);
 			if (r>0x1f)
 				r = 0x1f;
-			fade = (_fade & 0x00ff0000)>>16;
-			g = SR(g*fade,8);
+			fade = (_fade & 0xfc0)>>6;
+			g = SR(g*fade,6);
 			if (g>0x1f)
 				g = 0x1f;
-			fade = (_fade & 0x000000ff);
-			b = SR(b * fade,8);
+			fade = (_fade & 0x3f);
+			b = SR(b * fade,6);
 			if (b>0x1f)
 				b = 0x1f;
 			//coldata = (r << 0) | (g << 5) | (b << 10);
@@ -334,16 +352,22 @@ int CPS3DEV::__palette_dma::_transfer(){
 }
 
 CPS3DEV::__flash::__flash(int n){
-	_mem=0;
+	_mem=NULL;
 	_value=0;
 	_idx=n;
-	_bus=0;
+	_bank=1;
+	_enabled=1;
 }
 
 CPS3DEV::__flash::~__flash(){
-	if(_mem)
+	if(_mem && !_shared)
 		delete []_mem;
 	_mem=0;
+}
+
+void CPS3DEV::__flash::init(void *m){
+	if((_mem=(u8 *)m))
+		_shared=1;
 }
 
 void CPS3DEV::__flash::reset(){
@@ -355,26 +379,25 @@ void CPS3DEV::__flash::_reset(){
 	_timeout=1600;
 	_mode=FM_NORMAL;
 	_status=0x80;
-	_command=0;
 }
 
 void CPS3DEV::__flash::write(u32 a,u32 v,u32 f){
-	u32 elapsed= __cycles > _cycles?__cycles-_cycles:(25000000-_cycles)+__cycles;
+	u32 elapsed= __cycles > _cycles?__cycles-_cycles:(MHZ(25)-_cycles)+__cycles;
 
 	_cycles=__cycles;
 //	if(_idx>1){//61388c8
-		DLOG("FLASH W:%x %u %d %x",a,elapsed,_mode,v);
-		//EnterDebugMode(DEBUG_BREAK_OPCODE);
+		DLOG("FLASH W:%x %u %d %x F:%x %d:%d\n",a,elapsed,_mode,v,f,_idx,SR(a,28));
 	//}
-
-	//if(elapsed > _timeout)
-		//_reset();
+//	if(elapsed > _timeout)
+	//	_reset();
 	switch(_mode){
 		case FM_NORMAL:
 		case FM_READSTATUS:
 		case FM_READID:
 			switch((u8)v){
 				case 0xf0:
+					_reset();
+				break;
 				case 0xff:  // reset chip mode
 					_reset();
 			//		DLOG("FLASH W:MODE %x",v)
@@ -383,32 +406,20 @@ void CPS3DEV::__flash::write(u32 a,u32 v,u32 f){
 					_mode=FM_READID;
 					_timeout=1600;
 					DLOG("FLASH W: FM_READID MODE %x %x",a,v);
-					_command=v;
 				break;
 				case 0xa0:
 					DLOG("FLASH W:MODE %x %x",a,v);
-					_command=v;
 				break;
 				case 0x50:
 				case 0x70:
 					_mode=FM_READSTATUS;
-					_command=v;
 					DLOG("FLASH W: FM_READSTATUS MODE %x %x",a,v);
 				break;
 				case 0x10:
-					_command=v;
 				break;
-				case 0:
-				case 8:
-				break;
-				case 9:
-					//_mode=FM_READSTATUS;
-					//DLOG("FLASH W:%x %u %d %x",a,elapsed,_mode,v);
-					if(_prev==8){
-						//_timeout=7000;
-						_mode=FM_READSTATUS;
-						_command=v;
-						DLOG("command %x ",_command);
+				case 0xaa:
+					if((a&0xfff) == 0x554 || (a&0xfff) == 0xaa8){
+						_mode=FM_COMMAND1;
 					}
 				break;
 				default:
@@ -417,25 +428,114 @@ void CPS3DEV::__flash::write(u32 a,u32 v,u32 f){
 				break;
 			}
 		break;
+		case FM_COMMAND1:
+		//EnterDebugMode();
+			if((u8)v==0x55 && ((a&0xffc) == 0xaa8 || (a&0xffc) == 0x554))
+				_mode=FM_COMMAND2;
+		break;
+		case FM_COMMAND2:
+			switch(a&0xffc){
+				case 0x554:
+				case 0xaa8:
+					switch((u8)v){
+						case 0x90:
+							_mode=FM_READID;
+						break;
+						case 0x80://Enter Extended Command
+							_mode=FM_ERASEAMD1;
+							//EnterDebugMode();
+						break;
+						case 0xf0:
+							_mode=FM_NORMAL;//fixme
+							//_status=0xff;
+							//EnterDebugMode(DEBUG_BREAK_OPCODE);
+						break;
+						case 0xa0:
+							_mode=FM_PROGRAM;
+						break;
+						default:
+							EnterDebugMode();
+						break;
+					}
+				break;
+				default:
+					_mode=FM_NORMAL;
+					break;
+			}
+		break;
+		case FM_ERASEAMD1:
+			if((u8)v==0xaa && ((a&0xffc) == 0xaa8 || (a&0xffc) == 0x554))
+				_mode=FM_ERASEAMD2;
+		break;
+		case FM_ERASEAMD2:
+		if((u8)v==0x55 && ((a&0xffc) == 0xaa8 || (a&0xffc) == 0x554))
+			_mode=FM_ERASEAMD3;//aa8 55
+		break;
+		case FM_ERASEAMD3:
+			switch((u8)v){
+				case 0x10:
+				//	EnterDebugMode();
+					_mode=FM_ERASEAMD4;//FM_ERASEAMD4 chip erase
+					if(_mem)
+						memset(_mem,0xff,MB(_bank*8 + 8));
+					_invalidate=1;
+				break;
+				case 0x30://Erase Sector
+				default:
+					EnterDebugMode();
+				break;
+			}
+		break;
+		case FM_PROGRAM://write byte
+
+			_invalidate=1;
+			if(_mem){
+				u32 b = a & (MB(_bank*8 + 8) - 1);
+				if(_idx > 2 && 0){
+					printf("%x %x %x %x  %d\n",a,b,v,f,_idx);
+					EnterDebugMode();
+				}
+				_mem[b] = (u8)v;
+				if(!(f&AM_BYTE))
+					_mem[b + 1] = SR(v,8);
+				if(f&AM_DWORD) {
+					_mem[b + 2]=SR(v,16);
+					_mem[b + 3]=SR(v,24);
+					//EnterDebugMode();;
+				}
+			}
+			_mode=FM_NORMAL;
+		break;
 		default:
 			//LOGD("FLASH %x %x %x\n",pc,a,v);
 		break;
 	}
-	_prev=(u8)v;
 }
 //61338ae	61388c0
 int CPS3DEV::__flash::read(u32 a,u32 v,u32 f){
-	u32 elapsed= __cycles > _cycles ? __cycles-_cycles:(25000000-_cycles)+__cycles;
+//	if((f&0x80) && _idx<2) return 0xFFFFFFFF;
+	u32 elapsed= __cycles > _cycles ? __cycles-_cycles:(MHZ(25)-_cycles)+__cycles;
 
 	//if(_idx>1)
-		DLOG("FLASH R:%x %u %d %x",a,elapsed,_mode,_data);
+		DLOG("FLASH R:%x %u %d %x F:%x %d:%d",a,elapsed,_mode,_data,f,_idx,SR(a,28));
 	switch(_mode){
-		case 0:
-			return 1;
+		case FM_NORMAL:
+			if(_mem){
+				u32 b =a & ((!_bank ? MB(8) : MB(16))-1);
+				if(f&AM_DWORD)
+					_data=*((u32 *)&_mem[b]);
+				else if(f&AM_WORD)
+					_data=*((u16 *)&_mem[b]);
+				else
+					_data=_mem[b];
+			}
+			else
+				_data=0xffffffff;
+
+			return 0;
 		case FM_READID:
 			DLOG("FLASH R:%x %u %d %x",a,elapsed,_mode,_data);
-			EnterDebugMode(DEBUG_BREAK_OPCODE);
-			if(!_bus){
+			if(!_bank){//2 bank 64mbit
 				switch(a & 0xfffc) {
 					case 0:
 						_data=0x04040404;
@@ -453,12 +553,30 @@ int CPS3DEV::__flash::read(u32 a,u32 v,u32 f){
 			return 0;
 		case FM_READSTATUS:
 		case FM_WRITEPART1:
-			_data=_status;
+		//	if(_bus)
+				_data=_status|(_status<<8)|(_status<<16)|(_status<<24);
+			//else
+				//_data=_status;
 			DLOG("FLASH R: STATUS %x %d %x",a,_mode,_data);
 			return 0;
 		break;
+		case FM_ERASEAMD1:
+		case FM_ERASEAMD4:
+			_data=0x80808080;
+			_mode=FM_NORMAL;
+			return 0;
 	}
 	return 1;
+}
+
+int CPS3DEV::__flash::Serialize(IStreamer *p){
+	p->Write(&_value,sizeof(_value),0);
+	return 0;
+}
+
+int CPS3DEV::__flash::Unserialize(IStreamer *p){
+	p->Read(&_value,sizeof(_value),0);
+	return 0;
 }
 
 CPS3DEV::__timer::__timer(){
@@ -475,28 +593,41 @@ int CPS3DEV::__timer::Reset(){
 }
 
 int CPS3DEV::__timer::Init(u8 *mem,int port){
+	u32 v;
 	int div_tab[4] = { 3, 5, 7, 0 };
 	int wdtclk_tab[8] = { 1, 6, 7, 8, 9, 10, 12, 13 };
 
 	int i=div_tab[SR(IOREG__(mem,5),8) & 3];
 	_prescaler=BV(i);
-	if(IOREG__(mem,5) & 0x10)
-		_ocrb = SR(IOREG__(mem,5),16);
-	else
-		_ocra = SR(IOREG__(mem,5),16);
 	_status=(IOREG__(mem,4)&0xFF00FFFF)|(_status & 0xff0000 & IOREG__(mem,4));
-	//_count=(u16)_status;
-	return _ic&0xe ? 0 : 1;
+	_min_wait = 0x10000-_count;
+	if(IOREG__(mem,5) & 0x10){
+		_ocrb = SR(IOREG__(mem,5),16);
+		if(_ocrb && (v=_ocrb-_count) < _min_wait || !_min_wait)
+			_min_wait=v;
+	}
+	else{
+		_ocra = SR(IOREG__(mem,5),16);
+		if(_ocra && (v=_ocra-_count) < _min_wait || !_min_wait)
+			_min_wait=v;
+	}
+	if(_min_wait < _prescaler)
+		_min_wait=_prescaler;
+//	if((_ic & 0xe))
+	//	printf("%u %u\n",_min_wait,_prescaler);
+	return _ic & 0xe ? 0 : 1;
 }
 
-int CPS3DEV::__timer::Run(u8 *mem,int cyc){
+int CPS3DEV::__timer::Run(u8 *mem,int cyc,void *obj){
 	int irq;
+
 
 	if(!_prescaler)
 		return 0;
 	_step+=cyc;
 	if(_step < _prescaler)
 		return 0;
+	//printf("timer %u %u %u %u\n",cyc,_step,_prescaler,_min_wait);
 	irq=0;
 	while(_step >=_prescaler){
 		_step -=_prescaler;
@@ -544,6 +675,7 @@ void CPS3DEV::__eeprom::reset(){
 }
 
 int CPS3DEV::__eeprom::read(u32 a,u32 v,u32 f){
+	DLOG("EEPROM R %x %x F:%x",a,v,f);
 	_adr=a;
 	if((a&0xfff) < 0x201){
 		_data=(a&0x100) ? *((u16 *)&_mem[a&0x7f]) : 0;
@@ -554,10 +686,13 @@ int CPS3DEV::__eeprom::read(u32 a,u32 v,u32 f){
 }
 
 void CPS3DEV::__eeprom::write(u32 a,u32 v,u32 f){
+	DLOG("EEPROM W %x %x F:%x",a,v,f);
 	if(!(a&0x100))
 		*((u16 *)&_mem[a&0x7f])=v;
 	*((u16 *)&_mem[0x202])=_status;
 }
+
+static int lino=0;
 
 #define CD_SET_COUNT(a)\
 _regs[0x12]=SR(a,16);\
@@ -569,12 +704,38 @@ _regs[0x14]=a;
 CPS3DEV::__cdrom::__cdrom(){
 	_status=0;
 	_regs=_buffer=0;
+	fp=NULL;
 }
 
 CPS3DEV::__cdrom::~__cdrom(){
 	if(_regs)
 		delete []_regs;
 	_regs=_buffer=0;
+	if(fp)
+		fclose(fp);
+	fp=0;
+}
+
+int CPS3DEV::__cdrom::Query(u32,void *){
+	return -1;
+}
+
+int CPS3DEV::__cdrom::Serialize(IStreamer *p){
+	p->Write(_regs,32);
+	p->Write(&_cycles,sizeof(u32));
+	p->Write(&_status,sizeof(u64));
+	p->Write(&_blocks,sizeof(u16));
+	p->Write(&_data,sizeof(u8));
+	return 0;
+}
+
+int CPS3DEV::__cdrom::Unserialize(IStreamer *p){
+	p->Read(_regs,32);
+	p->Read(&_cycles,sizeof(u32));
+	p->Read(&_status,sizeof(u64));
+	p->Read(&_blocks,sizeof(u16));
+	p->Read(&_data,sizeof(u8));
+	return 0;
 }
 
 void CPS3DEV::__cdrom::reset(){
@@ -585,12 +746,18 @@ void CPS3DEV::__cdrom::reset(){
 		_regs[R_STATUS]=1;
 	}
 	_cycles=0;
+	_blocks=0;
+	_size=0;
+	if(fp)
+		fclose(fp);
+	fp=NULL;
 }
 
 int CPS3DEV::__cdrom::init(CPS3M &g){
 	if(!(_regs=new u8[_size_buffer+50]))
 		return -1;
 	_buffer=_regs+32;
+	reset();
 	return 0;
 }
 
@@ -609,7 +776,7 @@ int CPS3DEV::__cdrom::read(u32 a,u32 v,u32 f){
 }
 
 void CPS3DEV::__cdrom::_read_reg(){
-	DLOG("cdrom Rr:%x %x",_reg_idx,_regs[_reg_idx]);
+	//printf("cdrom Rr:%x %x\n",_reg_idx,_regs[_reg_idx]);
 	switch(_reg_idx){
 		case R_OWN_ID:
 			_data=_command_len;
@@ -662,7 +829,7 @@ void CPS3DEV::__cdrom::_read_reg(){
 }
 
 int CPS3DEV::__cdrom::_write_reg(u32 v){
-	DLOG("cdrom Wr:%x %x",_reg_idx,v);
+	//printf("cdrom Wr:%x %x\n",_reg_idx,v);
 	//fflush(stderr);
 	switch(_reg_idx){
 		case 0x15:
@@ -707,7 +874,7 @@ int CPS3DEV::__cdrom::_write_reg(u32 v){
 	return 0;
 }
 
-int CPS3DEV::__cdrom::Run(u8 *,int cyc){
+int CPS3DEV::__cdrom::Run(u8 *,int cyc,void * obj){
 	int res;
 
 	_cycles+=cyc;
@@ -744,14 +911,6 @@ int CPS3DEV::__cdrom::write(u32 a,u32 v,u32 f){
 	return 0;
 }
 
-static int to_msf(int frame){
-	int m = frame / (75 * 60);
-	int s = (frame / 75) % 60;
-	int f = frame % 75;
-
-	return (m << 16) | (s << 8) | f;
-}
-
 int CPS3DEV::__cdrom::_process_command(u8 v){
 	_cycles=0;
 	_regs[R_COMMAND_STEP]=0;
@@ -770,12 +929,14 @@ int CPS3DEV::__cdrom::_process_command(u8 v){
 	_state = 1;
 	switch(_regs[3]){
 		default:
-			printf(" %x %x ",_command_len,_count);
+#ifdef _DEVELOP
+			printf("cdrom %x %x ",_command_len,_count);
 			for(int i=0;i<_command_len;i++)
 				printf("%x ",_regs[i+3]);
 			printf(" %u\n",__cycles);
+#endif
 		break;
-		case 0x1e:
+		case 0x1e://prevent removal
 				//EnterDebugMode();
 		case 0:
 			_cw=0;
@@ -784,12 +945,9 @@ int CPS3DEV::__cdrom::_process_command(u8 v){
 		case 0x28:{
 			u32 r,lba = (_regs[2+3]<<24) | (_regs[3+3]<<16) | (_regs[4+3]<<8) | _regs[5+3];
 			_blocks = (_regs[7+3] << 8) | _regs[8+3];
-			printf("READ10 %u %u %u\n",lba,_blocks,_count);
+			//printf("READ10 %u %u %u\n",lba,_blocks,_count);
 			r=0;
-			if(!fp)
-				fp=fopen("roms/redearth/","rb");
-
-			if(!fseek(fp,lba*2448,SEEK_SET))
+			if(fp && !fseek(fp,lba*2448,SEEK_SET))
 				r=fread(_buffer,1,_count,fp);
 			_blocks--;
 			_cr=0;
@@ -798,13 +956,13 @@ int CPS3DEV::__cdrom::_process_command(u8 v){
 				_regs[R_COMMAND_STEP]=0x30;
 				_state=2;
 			}
-			else
+			else{
 				_regs[R_STATUS]=0x28;
-
+				_regs[R_AUX_STATUS]=0;
+			}
 		}
 		break;
-		case 0x43://reaad toc
-		{
+		case 0x43:{//read toc
 			int msf = (_regs[1+3] & 0x2) != 0;
 			u16 size = (_regs[7+3] << 7) | _regs[8+3];
 			u8 format = _regs[2+3] & 15;
@@ -813,11 +971,11 @@ int CPS3DEV::__cdrom::_process_command(u8 v){
 				format = (_regs[3+9] >> 6) & 3;
 			_cw=0;
 			_cr=0;
-			//printf("CDROM READTOC %d ",format);
+			//printf("CDROM READTOC %d %x",format,_regs[6]);
 			switch (format) {
 				case 0: {
 					int start_track = _regs[6];
-					int end_track = start_track+1;
+					int end_track = fp ? start_track+1 : 0;
 					int tracks;
 
 					if(start_track == 0)
@@ -831,6 +989,7 @@ int CPS3DEV::__cdrom::_process_command(u8 v){
 
 					int len = 2 + (tracks * 8);
 
+					//printf(" %d ",len);
 					_buffer[_cw++] = (len>>8) & 0xff;
 					_buffer[_cw++] = (len & 0xff);
 					_buffer[_cw++] = 1;
@@ -854,7 +1013,7 @@ int CPS3DEV::__cdrom::_process_command(u8 v){
 
 						u32 tstart = 0xa200;//cdrom->get_track_start(cdrom_track);
 						if(msf)
-							tstart = to_msf(tstart+150);
+							tstart = SECTMFS2(tstart+150);
 
 						_buffer[_cw++] = (tstart>>24) & 0xff;
 						_buffer[_cw++] = (tstart>>16) & 0xff;
@@ -868,36 +1027,34 @@ int CPS3DEV::__cdrom::_process_command(u8 v){
 			_regs[R_COMMAND_STEP]=0x30;
 		}
 		break;
-		case 0x12:
+		case 0x12://inquiry
 			switch(_regs[3+2]){
 				case 0:
-				memset(_buffer,0,_size_buffer);
-				_buffer[0]=5;
-				_buffer[1]=0x80;
-				_buffer[2]=0;
-				_buffer[3]=2;
-				_buffer[4]=0x20;
-				_buffer[7]=5;
-				strcpy((char *)&_buffer[8],"cazzo");
-				strcpy((char *)&_buffer[16],"troia");
-				strcpy((char *)&_buffer[32],"fic");
-				for(int i=8;i<36;i++){
-					if(!_buffer[i])
-						_buffer[i]=0x20;
-				}
-
-				_cw=_count;
-				_cr=0;
-
-				_regs[R_AUX_STATUS] |= 1;
-				_regs[R_COMMAND_STEP]=0x30;
-
+					memset(_buffer,0,_size_buffer);
+					_buffer[0]=5;
+					_buffer[1]=0x80;
+					_buffer[2]=0;
+					_buffer[3]=2;
+					_buffer[4]=0x20;
+					_buffer[7]=5;
+					strcpy((char *)&_buffer[8],"arkad");
+					strcpy((char *)&_buffer[16],"arkad");
+					strcpy((char *)&_buffer[32],"emu");
+					for(int i=8;i<36;i++){
+						if(!_buffer[i])
+							_buffer[i]=0x20;
+					}
+					_cw=_count;
+					_cr=0;
+					_regs[R_AUX_STATUS] |= 1;
+					_regs[R_COMMAND_STEP]=0x30;
 				break;
 			}
 		break;
-		case 0x25://capacity
-		{
-			u32 v=(MB(60) / 1) -1;
+		case 0x25:{//capacity
+			u32 v=_size;
+
+			v=(v / 2048);
 			memset(_buffer,0,_size_buffer);
 			_buffer[0]=SR(v,24);
 			_buffer[1]=SR(v,16);
@@ -924,6 +1081,20 @@ void CPS3DEV::__cdrom::_write_fifo(void *p,u8 d){
 	u8 *s = (u8 *)p;
 	for(;d;d--)
 		_buffer[_cw++]=*s++;
+}
+
+int CPS3DEV::__cdrom::OnLoad(char *path){
+	string s = GameManager::getBasePath(path);
+	s += DPS_PATH;
+	s += "cdrom";
+	fp=fopen(s.c_str(),"rb");
+	_size=0;
+	if(!fp)
+		return -1;
+	fseek(fp,0,SEEK_END);
+	_size=ftell(fp);
+	fseek(fp,0,SEEK_SET);
+	return 0;
 }
 
 }

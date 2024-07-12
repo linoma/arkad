@@ -4,7 +4,7 @@
 DebugLog::DebugLog(){
 	_tv=NULL;
 	_level=0x3;
-	_status=0;
+	_status=S_LOG;
 	_tags=_ctags=NULL;
 }
 
@@ -67,15 +67,24 @@ void DebugLog::OnButtonClicked(u32 id,HWND w){
 				BC(_level,BV(1));
 			Update();
 			break;
-#endif
 		case 5605:
+			if(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(w)))
+				BS(_status,S_LOG);
+			else
+				BC(_status,S_LOG);
 		break;
+#endif
 		case 5606:
 		{
-			for (auto it = _logs.begin();it != _logs.end(); ++it){
-				fprintf(stderr,"%s",(*it).c_str());
+			FILE *fp;
+
+			if((fp=fopen("log.log","wb"))){
+				for (auto it = _logs.begin();it != _logs.end(); ++it){
+					fprintf(fp,"%s",(*it).c_str());
+				}
+			//_logs.clear();
+				fclose(fp);
 			}
-			_logs.clear();
 		}
 		break;
 		default:
@@ -97,7 +106,7 @@ void DebugLog::Update(){
 #else
 	GtkTextIter e,s;
 	GtkTextBuffer *b;
-	char *c;
+	char *c,*p;
 	int level;
 
 	if(!_tv || !BT(_status,S_PAUSE) || !GTK_IS_TEXT_VIEW(_tv))
@@ -111,19 +120,21 @@ void DebugLog::Update(){
 		sscanf(c,"%02d",&level);
 		if(level > _level)
 			continue;
-		c+=2;
+		c += 2;
+		p=c;
 		if(_tags && *_tags){
 			char tag[20];
 			int i;
 
-			for(i=0;c[i] && c[i]!=32;i++)
+			while(*c && *c++ != 9);
+			for(i=0;c[i] && c[i] != 32;i++)
 				tag[i]=c[i];
 			tag[i]=0;
 			if(_ctags == NULL)
 				_ctags=new char[strlen(_tags)+10];
 			i=1;
 			if(_ctags){
-				char *pp,*p,a;
+				char *pp,*p;
 
 				i=0;
 				pp=_ctags;
@@ -139,9 +150,9 @@ void DebugLog::Update(){
 			if(!i)
 				continue;
 		}
-		b=gtk_text_view_get_buffer(GTK_TEXT_VIEW(_tv));
+		//b=gtk_text_view_get_buffer(GTK_TEXT_VIEW(_tv));
 		gtk_text_buffer_get_end_iter(b,&e);
-		gtk_text_buffer_insert(b,&e, c,-1);
+		gtk_text_buffer_insert(b,&e, p,-1);
 	}
 #endif
 
@@ -190,7 +201,7 @@ void DebugLog::Save(){
 
 int DebugLog::putf(int level,const char *fmt,va_list ptr){
 	char s[4096];
-
+	if(!(_status&S_LOG))  return 1;
 	//if(level > _level)
 		//return 1;
 	if(_logs.size() > DEBUGLOG_SIZE){

@@ -25,11 +25,6 @@ namespace cps3{
 
 #define SS_REG_(b,a) *((u16 *)((u8 *)b + a))
 
-#pragma pack(push,4)
-
-#pragma pack(1)
-
-#pragma pack(pop)
 
 class CPS3M;
 class CPS3DEV;
@@ -53,7 +48,7 @@ protected:
 		u32 _dst,_src,_len;
 		void *_mem;
 
-		virtual int Run(u8 *,int){return 0;};
+		virtual int Run(u8 *,int,void *){return 0;};
 		virtual int _transfer();
 		virtual void _reset();
 		virtual void _init(void *);
@@ -62,6 +57,7 @@ protected:
 	struct __char_dma : __dma{
 		virtual int _transfer();
 		virtual void _init(void *);
+		virtual int Query(u32,void *){return -1;};
 	private:
 		u32 _table_src;
 		u16 _lastb,_lastb2;
@@ -76,11 +72,11 @@ protected:
 	struct __palette_dma : __dma{
 		virtual int _transfer();
 		virtual void _init(void *);
+
+		virtual int Query(u32,void *){return -1;};
 	private:
 		u32 _fade;
 	} _palette_dma;
-
-	__dma *_dmas[5]={0,0,0,&_char_dma,&_palette_dma};
 
 	struct __timer : ICpuTimerObj{
 		enum {
@@ -100,9 +96,12 @@ protected:
 			u32 _status;
 		};
 		u16 _prescaler,_step,_ocra,_ocrb;
+		u32 _min_wait;
+
 		int Init(u8 *mem,int port);
-		int Run(u8 *mem,int cyc);
+		int Run(u8 *mem,int,void*);
 		int Reset();
+		virtual int Query(u32,void *){return -1;};
 		__timer();
 		virtual ~__timer();
 	} _timer;
@@ -116,44 +115,46 @@ protected:
 		};
 	} _wdt;
 
-	struct __gic{
+	struct __gic : IObject{
 		u8 _vectors[8];
 		u8 _levels[8];
 		u32 _irq_pending;
 
 		void reset();
+		virtual int Query(u32,void *){return -1;};
 	} _gic;
 
-	struct __flash{
+	struct __flash : IObject,ISerializable{
 		enum{
 			FM_NORMAL,  // normal read/write
 			FM_READID,  // read ID
-			FM_READSTATUS,  // read status
-			FM_WRITEPART1,  // first half of programming, awaiting second
-			FM_CLEARPART1,  // first half of clear, awaiting second
-			FM_SETMASTER,   // first half of set master lock, awaiting on/off
-			FM_READAMDID1,  // part 1 of alt ID sequence
-			FM_READAMDID2,  // part 2 of alt ID sequence
-			FM_READAMDID3,  // part 3 of alt ID sequence
-			FM_ERASEAMD1,   // part 1 of AMD erase sequence
-			FM_ERASEAMD2,   // part 2 of AMD erase sequence
-			FM_ERASEAMD3,   // part 3 of AMD erase sequence
-			FM_ERASEAMD4,   // part 4 of AMD erase sequence
-			FM_BYTEPROGRAM,
+			FM_READSTATUS,
+			FM_WRITEPART1,
+			FM_CLEARPART1,
+			FM_SETMASTER,
+			FM_COMMAND1,
+			FM_COMMAND2,
+			FM_COMMAND3,
+			FM_ERASEAMD1,
+			FM_ERASEAMD2,
+			FM_ERASEAMD3,
+			FM_ERASEAMD4,
+			FM_PROGRAM,
 			FM_BANKSELECT,
 			FM_WRITEPAGEATMEL
 		};
 
 		union{
 			struct{
+				unsigned int _enabled:1;
+				unsigned int _shared:1;
 				unsigned int _mode:4;
 				unsigned int _status:8;
 				unsigned int _load:1;
 				unsigned int _active:1;
-				unsigned int _bus:2;
+				unsigned int _bank:1;
 				unsigned int _idx:3;
-				unsigned int _command:8;
-				unsigned int _prev:8;
+				unsigned int _invalidate:1;
 			};
 			u64 _value;
 		};
@@ -166,9 +167,13 @@ protected:
 		void write(u32 a,u32 v,u32 f=0);
 		void reset();
 		void _reset();
+		void init(void *);
+		virtual int Serialize(IStreamer *);
+		virtual int Unserialize(IStreamer *);
+		virtual int Query(u32,void *){return -1;};
 	} *_flashs[8]={0};
 
-	struct __eeprom{
+	struct __eeprom : IObject{
 		u16 _data;
 		u16 _adr;
 		u16 _status;
@@ -178,15 +183,17 @@ protected:
 		void reset();
 		int read(u32 a,u32 v,u32 f=0);
 		void write(u32 a,u32 v,u32 f=0);
+		virtual int Query(u32,void *){return -1;};
 	} _eeprom;
 
-	struct __cdrom : ICpuTimerObj{
+	struct __cdrom : public ICpuTimerObj,public ISerializable{
 		protected:
 			int _write_reg(u32);
 			void _read_reg();
 			void _write_fifo(u8);
 			void _write_fifo(void *,u8);
 			int _process_command(u8);
+
 			union{
 				struct{
 					unsigned int _reg_idx:5;
@@ -200,8 +207,10 @@ protected:
 				u64 _status;
 			};
 			u8 *_regs,*_buffer;
-			u32 _cycles;
+			u32 _cycles,_size;
 			u16 _blocks;
+			FILE *fp;
+
 			const int _size_buffer=4096;
 		public:
 			u8 _data;
@@ -213,7 +222,12 @@ protected:
 			int init(CPS3M &);
 			int read(u32 a,u32 v,u32 f=0);
 			int write(u32 a,u32 v,u32 f=0);
-			int Run(u8 *mem,int cyc);
+			int Run(u8 *mem,int,void *);
+			int OnLoad(char *);
+
+			virtual int Query(u32,void *);
+			virtual int Serialize(IStreamer *);
+			virtual int Unserialize(IStreamer *);
 
 			enum : u8 {
 				R_OWN_ID=0,
@@ -252,6 +266,9 @@ protected:
 				INIT_CPT_RECV_BYTE_NACK
 			};
 	} _cdrom;
+
+	u32 _simm_bank,_ports[2];
+	__dma *_dmas[5]={0,0,0,&_char_dma,&_palette_dma};
 
 	friend class CPS3M;
 };

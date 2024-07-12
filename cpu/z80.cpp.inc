@@ -1,4 +1,3 @@
-
 Z80Cpu::Z80Cpu(void *m) : CCore(m){
 	_regs=NULL;
 	_ioreg=NULL;
@@ -24,7 +23,7 @@ int Z80Cpu::Restart(){
 	_irq_pending=0;
 	if(_regs){
 		memset(_regs,0,0x120);
-		REG_IFF |= (IFF1_BIT|IFF2_BIT);
+		//REG_IFF |= (IFF1_BIT|IFF2_BIT);
 	}
 	return 0;
 }
@@ -211,8 +210,6 @@ int Z80Cpu::_exec(u32 status){
 		case 0x26:
 		case 0x2e:
 		case 0x3e:{
-			u8 v;
-
 			ipc++;
 			_opcode=(u16)_opcode;
 			REG_(SR(_opcode,3)&7) = SR(_opcode,8);
@@ -440,7 +437,7 @@ int Z80Cpu::_exec(u32 status){
 			u8 i=SR(_opcode&0x30,3);
 			if(i==6)
 				i =REGI_SP;
-			REG16_(i)=REG16_(i) -1;
+			REG16_(i)=REG16_(i) - 1;
 			_opcode=(u8)_opcode;
 			__Z80F(%s,"DEC",pr[SR(_opcode&0x30,4)]);
 		}
@@ -617,7 +614,7 @@ int Z80Cpu::_exec(u32 status){
 
 			_opcode=(u8)_opcode;
 			v=REG_(_opcode&7);
-			REG_A^=v;
+			REG_A ^= v;
 			REG_F = 0;
 			Z80ZSP(REG_A);
 			__Z80F(%s,"XOR",prs[_opcode&7]);
@@ -700,6 +697,7 @@ int Z80Cpu::_exec(u32 status){
 				case 7:{//rlc
 					u8 v =REG_(SR(_opcode,8)&7);
 					REG_F &= ~(N_BIT|A_BIT|Z_BIT|C_BIT|S_BIT);
+
 					if(!(REG_(SR(_opcode,8)&7) = SL(v,1)|SR(v,7)))
 						REG_F |= Z_BIT;
 					if(v&0x80)
@@ -715,16 +713,12 @@ int Z80Cpu::_exec(u32 status){
 					u8 vv,v;
 
 					RB(REG16_(REGI_HL),v);
-					REG_F &= ~(N_BIT|A_BIT|Z_BIT|S_BIT);
-					if(!(vv= SL(v,1)|(REG_F & C_BIT)))
-						REG_F|=Z_BIT;
-					else if(vv&0x80)
-						REG_F |= S_BIT;
-					if(!(v&0x80))
-						REG_F &= ~C_BIT;
-					else
+
+					vv= SL(v,1)|(REG_F & C_BIT);
+					REG_F &= ~(N_BIT|A_BIT|Z_BIT|S_BIT|C_BIT);
+					if((v&0x80))
 						REG_F |= C_BIT;
-					PARITYFLAG(v);
+					Z80ZSP(vv);
 					res++;
 					WB(REG16_(REGI_HL),vv);
 					__Z80F([HL],"RL");
@@ -738,17 +732,11 @@ int Z80Cpu::_exec(u32 status){
 				case 0xd:
 				case 0xf:{
 					u8 v = REG_(SR(_opcode,8)&7);
-					REG_F &= ~(N_BIT|A_BIT|Z_BIT|S_BIT);
-					if(!(v&1))
-						REG_F &= ~C_BIT;
-					else
+					REG_F &= ~(N_BIT|A_BIT|Z_BIT|S_BIT|C_BIT);
+					if((v&1))
 						REG_F |= C_BIT;
 					v=REG_(SR(_opcode,8)&7) = SR(v,1)|SL(v,7);
-					if(!v)
-						REG_F |= Z_BIT;
-					else if(v&0x80)
-						REG_F |= S_BIT;
-					PARITYFLAG(v);
+					Z80ZSP(v);
 					res++;
 					__Z80F(%s,"RRC",prs[SR(_opcode,8)&7]);
 				}
@@ -757,18 +745,12 @@ int Z80Cpu::_exec(u32 status){
 					u8 v;
 
 					RB(REG16_(REGI_HL),v);
-					REG_F &= ~(N_BIT|A_BIT|Z_BIT|S_BIT);
+					REG_F &= ~(N_BIT|A_BIT|Z_BIT|S_BIT|C_BIT);
 
-					if(!(v&1))
-						REG_F &= ~C_BIT;
-					else
+					if((v&1))
 						REG_F |= C_BIT;
 					v=SR(v,1)|SL(v,7);
-					if(!v)
-						REG_F |= Z_BIT;
-					else if(v&0x80)
-						REG_F |= S_BIT;
-					PARITYFLAG(v);
+					Z80ZSP(v);
 					res++;
 					WB(REG16_(REGI_HL),v);
 					__Z80F([HL],"RRC");
@@ -833,11 +815,7 @@ int Z80Cpu::_exec(u32 status){
 						if((v&0x80))
 							REG_F |= C_BIT;
 						v=REG_(SR(_opcode,8)&7)=SL((s8)v,1);
-						if(!v)
-							REG_F |= Z_BIT;
-						else if(v&0x80)
-							REG_F |= S_BIT;
-						PARITYFLAG(v);
+						Z80ZSP(v);
 						res++;
 						__Z80F(%s,"SLA",prs[SR(_opcode,8)&7]);
 					}
@@ -854,11 +832,7 @@ int Z80Cpu::_exec(u32 status){
 						if((v&0x1))
 							REG_F |= C_BIT;
 						v=REG_(SR(_opcode,8)&7)=SR((s8)v,1);
-						if(!v)
-							REG_F|=Z_BIT;
-						else if(v&0x80)
-							REG_F|=S_BIT;
-						PARITYFLAG(v);
+						Z80ZSP(v);
 						res++;
 						__Z80F(%s,"SRA",prs[SR(_opcode,8)&7]);
 					}
@@ -875,9 +849,7 @@ int Z80Cpu::_exec(u32 status){
 					if((v&1))
 						REG_F |= C_BIT;
 					v=REG_(SR(_opcode,8)&7)=SR(v,1);
-					if(!v)
-						REG_F |= Z_BIT;
-					PARITYFLAG(v);
+					Z80ZSP(v)
 					res++;
 					__Z80F(%s,"SRL",prs[SR(_opcode,8)&7]);
 				}
@@ -909,7 +881,8 @@ int Z80Cpu::_exec(u32 status){
 				case 0xa6:
 				case 0xae:
 				case 0xb6:
-				case 0xbb:{
+				case 0xbb:
+				case 0xbe:{
 					u8 v;
 
 					RB(REG16_(REGI_HL),v);
@@ -1102,7 +1075,12 @@ int Z80Cpu::_exec(u32 status){
 		case 0xe1:
 		case 0xf1:{
 			//POP BC DE HL AF
-			RW(REG_SP,REG16_(SR(_opcode&0x30,3)));
+			u16 v;
+
+			u8 i=SR(_opcode&0x30,3);
+			RW(REG_SP,v);
+			if(i==6) v = SL(v,8)|SR(v,8);
+			REG16_(i)=v;
 			REG_SP+=2;
 			res+=2;
 			_opcode=(u8)_opcode;
@@ -1144,9 +1122,11 @@ int Z80Cpu::_exec(u32 status){
 		case 0xe5:
 		case 0xf5:{
 			//PUSH BC DE HL AF
-			REG_SP -= 2;
 			u8 i = SR(_opcode&0x30,3);
-			WW(REG_SP,REG16_(i));
+			u16 v=REG16_(i);
+			REG_SP -= 2;
+			if(i==6) v = SL(v,8)|SR(v,8);
+			WW(REG_SP,v);
 			res+=2;
 			_opcode = (u8)_opcode;
 			__Z80F(%s,"PUSH",prp[i/2]);
@@ -1431,8 +1411,8 @@ int Z80Cpu::_exec(u32 status){
 				}
 				break;
 				case 0xcb:{
-					u8 v,d;
 					u16 b;
+					u8 v;
 
 					ipc+=2;
 					b=(u16)SR(_opcode,16);
@@ -1444,11 +1424,7 @@ int Z80Cpu::_exec(u32 status){
 							REG_F &= ~(N_BIT|A_BIT|Z_BIT|C_BIT|S_BIT);
 							if(c)
 								REG_F |= C_BIT;
-							if(!v)
-								REG_F |= Z_BIT;
-							else if(v&0x80)
-								REG_F |= S_BIT;
-							PARITYFLAG(v);
+							Z80ZSP(v);
 							__Z80F([IX+%02x],"RL",(u8)b);
 						}
 						break;
@@ -1458,11 +1434,7 @@ int Z80Cpu::_exec(u32 status){
 							REG_F &= ~(N_BIT|A_BIT|Z_BIT|C_BIT|S_BIT);
 							if(c)
 								REG_F |= C_BIT;
-							if(!v)
-								REG_F |= Z_BIT;
-							else if(v&0x80)
-								REG_F |= S_BIT;
-							PARITYFLAG(v);
+							Z80ZSP(v);
 							__Z80F([IX+%02x],"RR",(u8)b);
 						}
 						break;
@@ -1473,7 +1445,7 @@ int Z80Cpu::_exec(u32 status){
 								REG_F |= C_BIT;
 							else
 								REG_F&=~C_BIT;
-							PARITYFLAG(v);
+							Z80ZSP(v);
 							__Z80F([IX+%02x],"SLA",(u8)b);
 						}
 						break;
@@ -1484,7 +1456,7 @@ int Z80Cpu::_exec(u32 status){
 								REG_F |= C_BIT;
 							else
 								REG_F&=~C_BIT;
-							PARITYFLAG(v);
+							Z80ZSP(v);
 							__Z80F([IX+%02x],"SRA",(u8)b);
 						}
 						break;
@@ -1492,10 +1464,8 @@ int Z80Cpu::_exec(u32 status){
 							REG_F &= ~(N_BIT|A_BIT|Z_BIT|C_BIT|S_BIT);
 							if(v&1)
 								REG_F |= C_BIT;
-
-							if(!(v=SR(v,1)))
-								REG_F |= Z_BIT;
-							PARITYFLAG(v);
+							v=SR(v,1);
+							Z80ZSP(v);
 							res+=5;
 							__Z80F([IX+%XH],"SRL",(u8)b);
 						break;
@@ -1572,6 +1542,12 @@ int Z80Cpu::_exec(u32 status){
 					res+=2;
 					_opcode=(u16)_opcode;
 					__Z80F(IX,"PUSH");
+				break;
+				case 0xe9:
+					_opcode=(u16)_opcode;
+					ipc=0;
+					_pc=REG16_(REGI_IX);
+					__Z80F([IX],"JP");
 				break;
 			}
 		break;
@@ -1835,11 +1811,7 @@ int Z80Cpu::_exec(u32 status){
 							REG_F &= ~(N_BIT|A_BIT|Z_BIT|C_BIT|S_BIT);
 							if(c)
 								REG_F |= C_BIT;
-							if(!v)
-								REG_F |= Z_BIT;
-							else if(v&0x80)
-								REG_F |= S_BIT;
-							PARITYFLAG(v);
+							Z80ZSP(v);
 							__Z80F([IY+%02x],"RL",(u8)b);
 						}
 						break;
@@ -1850,13 +1822,8 @@ int Z80Cpu::_exec(u32 status){
 								REG_F |= C_BIT;
 							else
 								REG_F &= ~C_BIT;
-
-							if(v)
-								REG_F &= ~Z_BIT;
-							else
-								REG_F |= Z_BIT;
 							res+=5;
-							PARITYFLAG(v);
+							Z80ZSP(v);
 							__Z80F([IY+%XH] %XH,"RR",(u8)b,REG16_(REGI_IY)+(u8)b);
 						}
 						break;
@@ -1866,8 +1833,8 @@ int Z80Cpu::_exec(u32 status){
 							if(c)
 								REG_F |= C_BIT;
 							else
-								REG_F&=~C_BIT;
-							PARITYFLAG(v);
+								REG_F &=~C_BIT;
+							Z80ZSP(v);
 							__Z80F([IY+%02x],"SLA",(u8)b);
 						}
 						break;
@@ -1956,6 +1923,12 @@ int Z80Cpu::_exec(u32 status){
 					_opcode=(u16)_opcode;
 					__Z80F(IY,"PUSH");
 				break;
+				case 0xe9:
+					_opcode=(u16)_opcode;
+					ipc=0;
+					_pc=REG16_(REGI_IY);
+					__Z80F([IY],"JP");
+				break;
 			}
 		break;
 		case 0xe3:{
@@ -1970,8 +1943,6 @@ int Z80Cpu::_exec(u32 status){
 		}
 		break;
 		case 0xe6:{
-			u8 v;
-
 			ipc++;
 			_opcode=(u16)_opcode;
 			REG_A &= SR(_opcode,8);
@@ -2014,6 +1985,12 @@ int Z80Cpu::_exec(u32 status){
 					REG_SP+=2;
 					goto B;
 				break;
+				case 0x47:
+					REG_I=REG_A;
+					_opcode=(u16)_opcode;
+					OnChangeIRQ(REG_I,0);
+					__Z80F(I\x2c A,"LD");
+				break;
 				case 0x4d:
 				//EnterDebugMode();
 					ipc=0;
@@ -2047,12 +2024,17 @@ int Z80Cpu::_exec(u32 status){
 					__Z80F(HL\x2c %s %x,"SBC",pr[SR(_opcode,12)&3],i);
 				}
 				break;
+				case 0x4f:
+					REG_R=REG_A;
+					_opcode=(u16)_opcode;
+					__Z80F(R\x2c A,"LD");
+				break;
 				case 0x5f:
 					REG_F &= ~(A_BIT|N_BIT|S_BIT|V_BIT);
 					if((REG_A=REG_R) & 0x80) REG_F |= S_BIT;
 					if(REG_IFF & IFF2_BIT) REG_F |= V_BIT;
 					_opcode=(u16)_opcode;
-					__Z80F(A\x2cR,"LD");
+					__Z80F(A\x2c R,"LD");
 				break;
 				case 0x41:
 				case 0x49:
@@ -2206,6 +2188,30 @@ int Z80Cpu::_exec(u32 status){
 					REG_I |= A_BIT;
 					__Z80F(%d,"IM",1);
 				break;
+				case 0xa3:{
+					u8 w,v;
+
+					RB(REG16_(REGI_HL),v);
+					__data=v;
+					v=REG_(REGI_C);
+					REG_(REGI_B)--;
+					if(REG_(REGI_B)==0)
+						REG_F |= Z_BIT;
+					else
+						REG_F &= ~Z_BIT;
+					REG_F |= N_BIT;
+					REG16_(REGI_HL)++;
+					w=0;
+					if(_portfnc_write[v]){
+						if((((Z80Cpu *)this)->*_portfnc_write[v])(v,&_ioreg[v],&__data,AM_WRITE|AM_BYTE))
+							w=1;
+					}
+					if(w)
+						_ioreg[v]=__data;
+					res+=2;
+					__Z80F(NOARG,"OUTI");
+				}
+				break;
 				default:
 					printf("%x UNK\n",_opcode);
 					EnterDebugMode();
@@ -2276,11 +2282,11 @@ int Z80Cpu::_exec(u32 status){
 	}
 A:
 	_pc+=ipc;
-	REG_R=(REG_R + 1) & 0x7F;
+	REG_R= (REG_R&0x80) | ((REG_R + 1) & 0x7F);
 	return res;
 B:
 	_pc+=ipc;
-	REG_R=(REG_R + 1) & 0x7F;
+	REG_R=(REG_R&0x80) | ((REG_R + 1) & 0x7F);
 	if(_irq_pending)
 		machine->OnEvent(0,(LPVOID)(u64)(_irq_pending|SL(_idx,24)));
 	return res;
@@ -2715,6 +2721,7 @@ int Z80Cpu::Disassemble(char *dest,u32 *padr){
 				case 0xae:
 				case 0xb6:
 				case 0xbb:
+				case 0xbe:
 					Z80LOGD(%d\x2c [HL],"RES",SR(_opcode&0x3800,11));
 				break;
 				case 0xc6:
@@ -2815,7 +2822,7 @@ int Z80Cpu::Disassemble(char *dest,u32 *padr){
 		case 0xc6:
 			ipc++;
 			_opcode=(u16)_opcode;
-			Z80LOGD(A\x2c%02x,"ADD",SR(_opcode,8));
+			Z80LOGD(A\x2c%02XH,"ADD",SR(_opcode,8));
 		break;
 		case 0xc7:
 		case 0xcf:
@@ -2914,8 +2921,6 @@ int Z80Cpu::Disassemble(char *dest,u32 *padr){
 				case 0x7e:
 				case 0x66:
 				case 0x6e:{
-					u8 v;
-
 					_opcode &= 0xFFFFFF;
 					ipc++;
 					Z80LOGD(%s\x2c[IX+%02x],"LD",prs[SR(_opcode&0x3800,11)],SR(_opcode,16));
@@ -2953,7 +2958,6 @@ int Z80Cpu::Disassemble(char *dest,u32 *padr){
 				}
 				break;
 				case 0xcb:{
-					u8 v,d;
 					u16 b;
 
 					ipc+=2;
@@ -3012,6 +3016,10 @@ int Z80Cpu::Disassemble(char *dest,u32 *padr){
 					_opcode=(u16)_opcode;
 					Z80LOGD(IX,"PUSH");
 				break;
+				case 0xe9:
+					_opcode=(u16)_opcode;
+					Z80LOGD([IX],"JP");
+				break;
 			}
 		break;
 		case 0xeb:
@@ -3062,8 +3070,6 @@ int Z80Cpu::Disassemble(char *dest,u32 *padr){
 				case 0x74:
 				case 0x75:
 				case 0x77:{
-					s8 d;
-
 					_opcode &=0xffffff;
 					ipc++;
 					Z80LOGD([IY+%02x]\x2c%s,"LD",SR(_opcode,16),prs[SR(_opcode&0x700,8)]);
@@ -3082,8 +3088,6 @@ int Z80Cpu::Disassemble(char *dest,u32 *padr){
 					Z80LOGD(%s\x2c[IY+%02x],"LD",prs[SR(_opcode&0x3800,11)],SR(_opcode,16));
 				break;
 				case 0x8e:{
-					u8 d,v;
-
 					ipc++;
 					_opcode&=0xffffff;
 					Z80LOGD(A\x2c[IY+%XH],"ADC",SR(_opcode,16));
@@ -3102,23 +3106,18 @@ int Z80Cpu::Disassemble(char *dest,u32 *padr){
 				}
 				break;
 				case 0xae:{
-					u8 v;
-
 					_opcode&=0xffffff;
 					ipc++;
 					Z80LOGD([IY+%02x],"XOR",SR(_opcode,16));
 				}
 				break;
 				case 0xb6:{
-					u8 v;
-
 					_opcode&=0xffffff;
 					ipc++;
 					Z80LOGD([IY+%02x],"OR",SR(_opcode,16));
 				}
 				break;
 				case 0xcb:{
-					u8 v;
 					u16 b;
 
 					ipc+=2;
@@ -3184,6 +3183,10 @@ int Z80Cpu::Disassemble(char *dest,u32 *padr){
 					_opcode=(u16)_opcode;
 					Z80LOGD(IY,"PUSH");
 				break;
+				case 0xe9:
+					_opcode=(u16)_opcode;
+					Z80LOGD([IY],"JP");
+				break;
 			}
 		break;
 		case 0xe3:{
@@ -3213,6 +3216,10 @@ int Z80Cpu::Disassemble(char *dest,u32 *padr){
 					_opcode=(u16)_opcode;
 					Z80LOGD(NOARG,"RETN");
 				break;
+				case 0x47:
+					_opcode=(u16)_opcode;
+					Z80LOGD(I\x2c A,"LD");
+				break;
 				case 0x4d:
 					_opcode=(u16)_opcode;
 					Z80LOGD(NOARG,"RETI");
@@ -3224,9 +3231,13 @@ int Z80Cpu::Disassemble(char *dest,u32 *padr){
 					_opcode=(u16)_opcode;
 					Z80LOGD(HL\x2c %s,"SBC",pr[SR(_opcode,12)&3]);
 				break;
+				case 0x4f:
+					_opcode=(u16)_opcode;
+					Z80LOGD(R\x2c A,"LD");
+				break;
 				case 0x5f:
 					_opcode=(u16)_opcode;
-					Z80LOGD(A\x2cR,"LD");
+					Z80LOGD(A\x2c R,"LD");
 				break;
 				case 0xa0:
 					_opcode=(u16)_opcode;
@@ -3288,6 +3299,10 @@ int Z80Cpu::Disassemble(char *dest,u32 *padr){
 				case 0x98:
 					_opcode=(u16)_opcode;
 					Z80LOGD(%s\x2c C,"IN",prs[SR(_opcode,11)&7]);
+				break;
+				case 0xa3:
+				_opcode=(u16)_opcode;
+					Z80LOGD(NOARG,"OUTI");
 				break;
 				default:
 					Z80LOGD(%x,"UNK",_opcode);
@@ -3440,12 +3455,16 @@ int Z80Cpu::_enterIRQ(int n,int v,u32 pc){
 		case 1:
 			_pc=0x38;
 		break;
-		default:
-		EnterDebugMode(0);
+		case 0:
+			LOGD("_enterIRQ 0\n");
+			EnterDebugMode(0);
+		break;
+		case 2:
+			LOGD("_enterIRQ 2\n");
+			EnterDebugMode(0);
 		break;
 	}
 	EnterDebugMode(DEBUG_BREAK_IRQ);
-	//EnterDebugMode(0);
 	return 0;
 }
 
@@ -3459,13 +3478,7 @@ int Z80Cpu::_enterNMI(){
 	else
 		REG_IFF &= ~IFF2_BIT;
 	REG_IFF &= ~IFF1_BIT;
-	switch(SR(REG_I,4) & 3){
-		case 1:
-			_pc=0x66;
-		break;
-		case 2:
-		break;
-	}
+	_pc=0x66;
 	//EnterDebugMode();
 	return 0;
 }
@@ -3473,7 +3486,7 @@ int Z80Cpu::_enterNMI(){
 int Z80Cpu::_dumpRegisters(char *p){
 	char cc[1024];
 
-	sprintf(p,"\\bPC\\n:%04X SP:%04X IX:%04X IY:%04X C:%u\n\n",_pc,REG_SP,REG16_(REGI_IX),REG16_(REGI_IY),_cycles);
+	sprintf(p,"\\bPC\\n:%04X SP:%04X IX:%04X IY:%04X D:%02X C:%u\n\n",_pc,REG_SP,REG16_(REGI_IX),REG16_(REGI_IY),(u32)__data,_cycles);
 	sprintf(cc,"\\bA\\n:%02X  \\bB\\n:%02X  \\bC\\n:%02X  \\bD\\n:%02X  \\bE\\n:%02X  \\bH\\n:%02X  \\bL\\n:%02X\n",REG_A,REG_(REGI_B),REG_(REGI_C),
 		REG_(REGI_D),REG_(REGI_E),REG_(REGI_H),REG_(REGI_L));
 	strcat(p,cc);
@@ -3481,8 +3494,26 @@ int Z80Cpu::_dumpRegisters(char *p){
 		REG_(REGI_A+REG_I2),REG_(REGI_B+REG_I2),REG_(REGI_C+REG_I2),REG_(REGI_D+REG_I2),REG_(REGI_E+REG_I2),REG_(REGI_F+REG_I2),
 		REG_(REGI_H+REG_I2),REG_(REGI_L+REG_I2));
 	strcat(p,cc);
-	sprintf(cc,"\nF: %02X C:%c N:%c V:%c A:%c Z:%c S:%c\tIFF: %02X II:%02X R:%02X IP:%02X\n",REG_(REGI_F), REG_F&C_BIT?49:48,REG_F&N_BIT?49:48,REG_F&V_BIT?49:48,
+	sprintf(cc,"\nF: %02X C:%c N:%c V:%c A:%c Z:%c S:%c\tIFF: %02X I:%02X R:%02X IP:%02X\n",REG_(REGI_F), REG_F&C_BIT?49:48,REG_F&N_BIT?49:48,REG_F&V_BIT?49:48,
 		REG_F&A_BIT?49:48,REG_F&Z_BIT?49:48,REG_F&S_BIT?49:48,REG_IFF,REG_I,REG_R,_irq_pending);
 	strcat(p,cc);
 	return 0;
+}
+
+Z80CpuShared::Z80CpuShared(void *m) : Z80Cpu(m){
+	_ipc=NULL;
+}
+
+Z80CpuShared::~Z80CpuShared(){
+}
+
+s32 Z80CpuShared::fn_shared_mem_w(u32 a,pvoid mem,pvoid data,u32 flags){
+	u16 b = (u16)a;
+	if(flags & AM_BYTE)
+		_ipc[b] = *((u8 *)data);
+	else if(flags & AM_WORD)
+		*((u16 *)&_ipc[b]) = *((u16 *)data);
+	else if(flags & AM_DWORD)
+		*((u32 *)&_ipc[b]) = *((u32 *)data);
+	return 1;
 }

@@ -191,6 +191,13 @@ u32 GetTempPath(u32 nBufferLength,char *lpBuffer){
 	return dwLen;
 }
 
+GtkWidget* GetDlgItem(GtkWidget* parent, u32 id){
+	char c[30];
+
+	sprintf(c,"%u",id);
+	return GetDlgItem(parent,c);
+}
+
 GtkWidget* GetDlgItem(GtkWidget* parent, const gchar* name){
 	if(!parent || !GTK_IS_WIDGET(parent))
 		return 0;
@@ -234,11 +241,12 @@ void gtk_widget_set_name(GtkWidget *w,u32 id){
 
 GtkWidget *CreateDialogFromResource(const char *id,void *h){
 	GtkBuilder *_builder = gtk_builder_new();
-	gtk_builder_add_from_string (_builder,(gchar *)_binary_res_glade_start,-1,NULL);
+		gtk_builder_add_from_string (_builder,(gchar *)_binary_res_glade_start,-1,NULL);
 	GtkWidget *w = GTK_WIDGET(gtk_builder_get_object(_builder, id));
 	gtk_builder_connect_signals(_builder, h);
 	//gtk_widget_show(w);
 	g_object_unref(_builder);
+	//g_object_ref(w);
 	return w;
 }
 
@@ -331,7 +339,18 @@ A:
     return res;
 }
 
+HBITMAP CreateBitmap(int width,int height,u32 nPlanes,u32 nBits,const void *lpBits){
+	BOOL bAlpha;
+	HBITMAP bit;
 
+	bAlpha = nBits == 32 ? TRUE : FALSE;
+	bit = gdk_pixbuf_new(GDK_COLORSPACE_RGB,bAlpha,8,width,abs(height));
+	if(bit == NULL)
+		return NULL;
+	if(lpBits == NULL)
+		return bit;
+	return bit;
+}
 
 #else
 int CGdiPlusLoadBitmapResource(LPCTSTR pName, LPCTSTR pType, HMODULE hInst, void **ret){
@@ -373,7 +392,6 @@ int CGdiPlusLoadBitmapResource(LPCTSTR pName, LPCTSTR pType, HMODULE hInst, void
 }
 #endif
 
-
 BOOL PeekMessage(LPMSG lpMsg){
 #ifndef __WIN32__
 	HWND hwnd;
@@ -404,11 +422,47 @@ u32 _log2(u32 val){
 	u32 v;
 
 	__asm__ __volatile__(
-		"bsfl %1,%%eax\n"
+		"bsrl %1,%%eax\n"
 		"mov %%eax,%0\n"
 		: "=m" (v) : "m" (val) : "rax"
 	);
 	return v;
+}
+
+int SaveTextureAsTGA(u8 *image,u16 width,u16 height,u32 data){
+   u8 *buffer,header[6],TGAheader[12]={0,0,2,0,0,0,0,0,0,0,0,0};
+   FILE *fp;
+   u32 i,res;
+   char s[250];
+
+   buffer = (u8 *)malloc(width*height*sizeof(u32));
+   if(buffer == NULL)
+       return -1;
+	res=-2;
+	sprintf(s,"tex_0x%08X_%08X.tga",data,GetTickCount());
+	if(!(fp=fopen(s,"wb+"))) goto Z;
+
+	fwrite(TGAheader,1,sizeof(TGAheader),fp);
+	header[4] = (u8)32;
+	header[0] = (u8)(width % 256);
+	header[1] = (u8)(width / 256);
+	header[2] = (u8)(height % 256);
+	header[3] = (u8)(height / 256);
+	header[5]=0;
+	fwrite(header,sizeof(header),1,fp);
+
+	for(i=0;i<width*height*4;i+=4){
+		buffer[i] = image[i+2];
+		buffer[i+1] = image[i+1];
+		buffer[i+2] = image[i];
+		buffer[i+3] = image[i+3];
+	}
+	fwrite(buffer,width*height*sizeof(u32),1,fp);
+	res=0;
+Z:
+	if(fp) fclose(fp);
+	free(buffer);
+	return res;
 }
 
 int SaveBitmap(char *fn,int width,int height,int nc,int bp,u8 *data){

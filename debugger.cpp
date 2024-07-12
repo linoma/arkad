@@ -68,6 +68,7 @@ void DebugWindow::OnMoveResize(u32 id,HWND,int w,int h){
 	//printf("onmoveresize %d %d %d %d\n",_itemHeight,_nItems,al.height,e->height);
 	//memset(&_views,0,sizeof(_views));
 #endif
+	_memPages._reset();
 	_invalidateView();
 	_adjustCodeViewport((u32)-1,_iCurrentView);
 }
@@ -112,7 +113,6 @@ int DebugWindow::Init(HWND w){
 	GtkCellRenderer *renderer;
 	GtkTreeViewColumn *column;
 	GtkListStore *list_store;
-	int height;
 
 	_window=w;
 	gtk_widget_hide_on_delete(_window);
@@ -170,6 +170,18 @@ int DebugWindow::Init(HWND w){
 	gtk_widget_show(w);
 	g_signal_connect (w, "activate", G_CALLBACK (::on_menuitem_select), NULL);
 
+	w = gtk_check_menu_item_new_with_label ("DEVICE");
+	gtk_widget_set_name(w,MAKELONG(IDC_DEBUG_MENUBAR,7));
+	gtk_menu_shell_append (GTK_MENU_SHELL (mm), w);
+	gtk_widget_show(w);
+	g_signal_connect (w, "activate", G_CALLBACK (::on_menuitem_select), NULL);
+
+	w = gtk_check_menu_item_new_with_label ("VBLANK");
+	gtk_widget_set_name(w,MAKELONG(IDC_DEBUG_MENUBAR,8));
+	gtk_menu_shell_append (GTK_MENU_SHELL (mm), w);
+	gtk_widget_show(w);
+	g_signal_connect (w, "activate", G_CALLBACK (::on_menuitem_select), NULL);
+
 	w = gtk_menu_item_new_with_label ("Level");
 	gtk_menu_shell_append (GTK_MENU_SHELL (m), w);
 
@@ -216,7 +228,7 @@ int DebugWindow::Init(HWND w){
 	gtk_widget_set_name(w,MAKELONG(IDC_DEBUG_MENUBAR,IDC_DEBUG_CLOSE));
 	gtk_menu_shell_append (GTK_MENU_SHELL (m), w);
 	g_signal_connect (w, "activate", G_CALLBACK (::on_menuitem_select), NULL);
-
+/*
 	m=gtk_viewport_new(NULL,NULL);
 	w=gtk_text_view_new();
 	gtk_text_view_set_monospace(GTK_TEXT_VIEW(w),true);
@@ -257,6 +269,24 @@ int DebugWindow::Init(HWND w){
 
 	m=gtk_label_new ("Layers");
 	gtk_notebook_append_page(GTK_NOTEBOOK (GetDlgItem(_window,RES(IDC_DEBUG_TAB1))), mm, m);
+
+	mm=gtk_box_new(GTK_ORIENTATION_VERTICAL,5);
+	m=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,5);
+
+	w=gtk_combo_box_text_new();
+	gtk_widget_set_name(w,RES(IDC_DEBUG_PALETTE_CB));
+	gtk_container_add (GTK_CONTAINER (m),w);
+	gtk_container_add (GTK_CONTAINER (mm),m);
+
+	w=gtk_drawing_area_new();
+	gtk_widget_set_hexpand(w,true);
+	gtk_widget_set_vexpand(w,true);
+	gtk_widget_set_name(w,RES(IDC_DEBUG_DA2));
+	g_signal_connect(G_OBJECT(w),"draw",G_CALLBACK(on_paint),0);
+	gtk_container_add (GTK_CONTAINER (mm),w);
+
+	m=gtk_label_new ("Palette");
+	gtk_notebook_append_page(GTK_NOTEBOOK (GetDlgItem(_window,RES(IDC_DEBUG_TAB1))), mm, m);*/
 #endif
 
 #endif
@@ -265,27 +295,28 @@ int DebugWindow::Init(HWND w){
 
 void DebugWindow::Update(){
 #ifdef _DEBUG
-	int len,nn;
+	int i,nn;
 	char *p,*pp;
 	HWND win;
 
 	if(!_window || !cpu)
 		return;
 	//return;
-	p=NULL;
-	len=cpu->Dump(&p);
+	p=(char *)&_memPages;
+	i=cpu->Dump(&p);
 	//p=NULL;
-	if(!p || len < 1)
+	if(!p || i< 1)
 		goto A;
 	pp=p;
 	while(*pp){
 #ifdef __WIN32__
-	win = GetDlgItem(_window,atoi(pp));
+		win = GetDlgItem(_window,atoi(pp));
 #else
 		win = GetDlgItem(_window,pp);
 #endif
 		pp += strlen(pp)+5;
 		nn = strlen(pp);
+
 		if(win){
 #ifdef __WIN32__
 
@@ -342,31 +373,29 @@ A:
 		gtk_list_store_clear(model);
 	{
 		u64 *bp;
-		char c[30];
-
+		char c[330];
 		HWND w=NULL;
 
 		if(!cpu->Query(ICORE_QUERY_BREAKPOINT_ENUM,&bp) && bp){
 			pp=(char *)bp;
 			for(;*bp;bp++){
 				HWND e;
-				char s='*',ec[][3]={"!=","==","<",">"};
+				char s='*',ec[][3]={"!=","==","<",">"},*p__;
 
 				if(!w){
 					w = gtk_menu_tool_button_get_menu(GTK_MENU_TOOL_BUTTON(GetDlgItem(_window,RES(5517))));
 					if(w){
 						GList *children = gtk_container_get_children(GTK_CONTAINER(w));
-						for(int i=0;children;children = g_list_next(children),i++){
+						for(i=0;children;children = g_list_next(children),i++){
 							gtk_container_remove(GTK_CONTAINER(w),GTK_WIDGET(children->data));
 						}
 					}
 					else
-					w=gtk_menu_new();
+						w=gtk_menu_new();
 				}
 
 				if(!(*bp & 0x8000000000000000ULL))
 					s=32;
-
 				sprintf(c,"%c 0x%08X",s,(u32)*bp);
 				e=gtk_menu_item_new_with_label (c);
 				gtk_menu_shell_append (GTK_MENU_SHELL (w), e);
@@ -375,7 +404,7 @@ A:
 					char s_[][4]={"R","W","R/W"};
 					char s__[][3]={"B","W","L","*"};
 
-					sprintf(c,"%c M 0x%X %s %s %s",s,(u32)*bp,s__[SR(*bp,38) & 3],s_[SR(*bp,60)&3],ec[SR(*bp,35) & 7]);
+					sprintf(c,"%c %c 0x%X %s %s %s",s,SR(*bp,34) & 1 ?'M': 'm',(u32)*bp,s__[SR(*bp,38) & 3],s_[SR(*bp,60)&3],ec[SR(*bp,35) & 7]);
 				}
 				else if(*bp & 0x800000000000ULL){
 					u32 v=SR(*bp,32);
@@ -386,6 +415,11 @@ A:
 				}
 				else
 					sprintf(c,"%c   0x%X  %5d %5d",s,(u32)*bp,(u16)SR(*bp,32),(u16)(SR(*bp,48) & 0x7fff));
+				if(!_getNoteFromAddress((u32)*bp,&p__)){
+					for(i=strlen(c);*p__ && *p__!=10;p__++,i++)
+						c[i]=*p__;
+					c[i]=0;
+				}
 				HTREEITEM pi=AddListItem(win,c);
 				delete pi;
 			}
@@ -400,14 +434,14 @@ A:
 	if(win){
 		char c[20];
 
-		sprintf(c,"LA: %x",_lastAccessAddress);
+		sprintf(c,"LA: %x",(u32)_memPages._lastAccessAddress);
 		gtk_label_set_text(GTK_LABEL(win),c);
 	}
 	win= GetDlgItem(_window,RES(7100));
 	if(win){
 		char c[20];
 
-		sprintf(c,"EA: %x",_editAddress);
+		sprintf(c,"EA: %x",(u32)_memPages._editAddress);
 		gtk_label_set_text(GTK_LABEL(win),c);
 	}
 #endif
@@ -418,7 +452,7 @@ A:
 #endif
 }
 
-int DebugWindow::_updateAddressInfo(u32 _pc){
+int DebugWindow::_getNoteFromAddress(u32 pc,char **p){
 	char *pp;
 	int nn;
 	HWND w;
@@ -432,7 +466,7 @@ int DebugWindow::_updateAddressInfo(u32 _pc){
 	if(!(w=GetDlgItem(_window,RES(IDC_DEBUG_TV1))))
 		return -1;
 	if(!(b = gtk_text_view_get_buffer(GTK_TEXT_VIEW(w))))
-		return 21;
+		return -2;
 	gtk_text_buffer_get_start_iter(b,&s);
 	gtk_text_buffer_get_end_iter(b,&e);
 	if(!(pp=gtk_text_buffer_get_text(b,&s,&e,false)))
@@ -446,8 +480,8 @@ int DebugWindow::_updateAddressInfo(u32 _pc){
 				if(n){
 					u32 d;
 					sscanf(c,"%x",&d);
-					if(d==_pc){
-						ShowToastMessage(&c[n]);
+					if(d==pc){
+						*p=&c[n];
 						nn=n;
 						goto A;
 					}
@@ -462,10 +496,19 @@ int DebugWindow::_updateAddressInfo(u32 _pc){
 		}
 		pp+=n;
 	}
+	return -4;
 A:
 #endif
 
 #endif
+	return 0;
+}
+
+int DebugWindow::_updateAddressInfo(u32 pc){
+	char *p;
+
+	if(_getNoteFromAddress(pc,&p)) return -1;
+	ShowToastMessage(p);
 	return 0;
 }
 
@@ -503,7 +546,7 @@ void DebugWindow::_adjustCodeViewport(u32 adr,int v){
 		if(v != DBV_VIEW)
 			memcpy(&_views[DBV_VIEW],pv,sizeof(DISVIEW));
 	}
-A:
+
 #ifdef __WIN32__
 #else
 	gtk_range_set_value(GTK_RANGE(win),adr & (pv->uSize-1));
@@ -523,7 +566,6 @@ void DebugWindow::_fillCodeWindow(u32 adr,int cv){
 #ifdef __WIN32__
 #else
 	g_object_freeze_notify(G_OBJECT(win));
-
 A:
 	pv = &_views[cv];
 
@@ -602,7 +644,7 @@ A:
 	delete []p;
 }
 
-HTREEITEM DebugWindow::AddListItem (HWND listbox, char *sText){
+HTREEITEM DebugWindow::AddListItem(HWND listbox, char *sText){
 	HTREEITEM iter;
 #ifdef __WIN32__
 
@@ -652,7 +694,6 @@ _err:
 
 HTREEITEM DebugWindow::GetSelectedListItem(HWND w){
 	HTREEITEM piter;
-	u32 i;
 
 #ifdef __WIN32__
 
@@ -721,31 +762,51 @@ A:
 	return res;
 }
 
-void DebugWindow::OnKeyScroolEvent(int v){//fixme
-	HWND w;
-	double d[6];
+void DebugWindow::_adjustScrollViewport(int v,HWND w,double *r,u32 attr){
 #ifdef __WIN32__
 #else
-	GtkAdjustment *control;
+	double d[6];
 	int i;
+	GtkAdjustment *control;
 
-	w=GetDlgItem(_window,RES(IDC_DEBUG_SB));
-	if((control = gtk_range_get_adjustment((GtkRange *)w)) == NULL)
+	if(!w || (control = gtk_range_get_adjustment(GTK_RANGE(w))) == NULL)
 		return;
 	i=1;
 	if(v<0){
 		i*=-1;
 		v*=-1;
 	}
-
 	g_object_get((gpointer)control,"lower",&d[0],"upper",&d[1],"value",&d[2],"page-increment",&d[3],"step-increment",&d[4],NULL);
 	d[5]=(d[2]+d[v]*i);
-	//printf("kd %x %u %u %x \n",(u32)d[2],(u32)d[3],(u32)d[4],(u32)(d[5]+_views[DBV_VIEW].uAdr));
-	//d[5]+=_startAddress;
-	//gtk_range_set_value(GTK_RANGE(w),d[5]);
-	//g_signal_emit_by_name((gpointer)w,"change-value",0,d[5],&d[5]);
+	if(r)
+		*r=d[5];
+	if(attr&1)
+		gtk_range_set_value(GTK_RANGE(w),d[5]);
 #endif
-	_adjustCodeViewport((u32)d[5]+_views[DBV_VIEW].uAdr,DBV_VIEW);
+}
+
+void DebugWindow::OnKeyScrollEvent(int v,u32 id,HWND w){//fixme
+	double d;
+	u32 i;
+
+#ifdef __WIN32__
+#else
+	if(!w) w=GetDlgItem(_window,RES(IDC_DEBUG_SB));
+	if(id==IDC_DEBUG_LB_DIS){
+		_adjustScrollViewport(v,w,&d,0);
+		_adjustCodeViewport((u32)d+_views[DBV_VIEW].uAdr,DBV_VIEW);
+	}
+	else{
+		w=gtk_window_get_focus(GTK_WINDOW(_window));
+		i = (u32)(u64)g_object_get_data(G_OBJECT(w),"type");
+		if(i==2){
+			_adjustScrollViewport(v,_memPages._sb);
+		//	g_signal_emit_by_name((gpointer)_memPages._sb,"scroll-event",0,d,&d);
+			if(!_memPages._onScroll(id,_memPages._sb,GTK_SCROLL_END))
+				Update();
+		}
+	}
+#endif
 }
 
 int DebugWindow::OnKeyDown(int key,u32 wParam){
@@ -753,24 +814,49 @@ int DebugWindow::OnKeyDown(int key,u32 wParam){
 #ifdef __WIN32__
 #else
 	HWND w=gtk_window_get_focus(GTK_WINDOW(_window));
-
 	if(w){
 		char *name = (char *)gtk_widget_get_name(w);
 		if(name)
 			id=atoi(name);
 	}
+	switch(id){
+		case IDC_DEBUG_DA1*10:{
+			int v;
+
+			switch(key){
+				case GDK_KEY_Page_Down:
+					v=3;
+				break;
+				case GDK_KEY_Page_Up:
+					v=-3;
+				break;
+				case GDK_KEY_Down:
+					v=4;
+				break;
+				case GDK_KEY_Up:
+					v=-4;
+				break;
+			}
+			_adjustScrollViewport(v,w,0);
+			gtk_container_set_focus_child(GTK_CONTAINER(_window),w);
+		}
+		return 0;
+	}
 	switch(key){
 		case GDK_KEY_Page_Down:
-			OnKeyScroolEvent(3);
+			OnKeyScrollEvent(3,id);
 		break;
 		case GDK_KEY_Page_Up:
-			OnKeyScroolEvent(-3);
+			OnKeyScrollEvent(-3,id);
 		break;
 		case GDK_KEY_Down:
-			OnKeyScroolEvent(4);
+			OnKeyScrollEvent(4,id);
 		break;
 		case GDK_KEY_Up:
-			OnKeyScroolEvent(-4);
+			OnKeyScrollEvent(-4,id);
+		break;
+		case GDK_KEY_F12://Run framee
+			DebugMode(8);
 		break;
 		case GDK_KEY_F3://Stop
 			if(id==3102)
@@ -814,8 +900,16 @@ int DebugWindow::OnKeyDown(int key,u32 wParam){
 					if(!cpu->Query(ICORE_QUERY_BREAKPOINT_ADD,(void *)d)){
 						Update();
 						w=GetDlgItem(_window,RES(IDC_DEBUG_TAB1));
-						int i = gtk_notebook_get_n_pages(GTK_NOTEBOOK (w))-3;
+						int i = gtk_notebook_get_n_pages(GTK_NOTEBOOK (w))-5;
 						gtk_notebook_set_current_page(GTK_NOTEBOOK(w),i);
+
+						w=GetDlgItem(_window,RES(IDC_DEBUG_LB_BP));
+						HTREEITEM im=GetListItemFromAddress(w,adr);
+						if(im){
+							GtkTreeSelection *select = gtk_tree_view_get_selection((GtkTreeView *)w);
+							gtk_tree_selection_select_iter(select,im);
+							delete im;
+						}
 					}
 				}
 			}
@@ -850,7 +944,7 @@ int DebugWindow::DebugMode(int m,u64 v,u64 vv){
 		case 1:
 			if(!v || BT(_status,v)){
 				BS(_status,S_DEBUG|S_PAUSE);
-				BC(_status,S_DEBUG_NEXT);
+				BC(_status,S_DEBUG_NEXT|S_DEBUG_NEXT_FRAME);
 				_pc=0;
 #ifdef __WIN32__
 #else
@@ -867,7 +961,7 @@ int DebugWindow::DebugMode(int m,u64 v,u64 vv){
 			if(!BT(_status,S_DEBUG))
 				return -1;
 			BS(_status,S_DEBUG_NEXT);
-			_pc=0x10000002;
+			_pc=0x1000000000000002;
 			DebugWindow::_updateToolbar();
 		break;
 		case 2:
@@ -875,20 +969,20 @@ int DebugWindow::DebugMode(int m,u64 v,u64 vv){
 			DebugWindow::_updateToolbar();
 		break;
 		case 3:{//next   F4
-			u32 n;
+			u32 n[2]={2,0};
 
 			if(!BT(_status,S_DEBUG))
 				return -1;
 			BS(_status,S_DEBUG_NEXT);
-			n=(u32)2;
-			if(cpu->Query(ICORE_QUERY_NEXT_STEP,&n)){
-				u32 i;
+		//	n=(u32)2;
+			if(cpu->Query(ICORE_QUERY_NEXT_STEP,n)){
 
-				n=2;
+				n[0]=2;
 				//cpu->Query(ICORE_QUERY_PC,&i);
 				//n+=i;
 			}
-			_pc = (u32)n;
+			//printf("ICORE_QUERY_NEXT_STEP %x\n",n[0]);
+			_pc = (u64)n[0];
 			DebugWindow::_updateToolbar();
 		}
 		break;
@@ -900,7 +994,7 @@ int DebugWindow::DebugMode(int m,u64 v,u64 vv){
 				u32 i;
 
 				if(!GetAddressFromSelectedItem(GetDlgItem(_window,RES(IDC_DEBUG_LB_DIS)),&i))
-					_pc = 0x80000000|(u32)i;
+					_pc = 0x8000000000000000|(u32)i;
 			}
 			DebugWindow::_updateToolbar();
 		break;
@@ -921,20 +1015,59 @@ int DebugWindow::DebugMode(int m,u64 v,u64 vv){
 				return -1;
 			BS(_status,S_DEBUG_NEXT);
 			{
-				u32 i,n;
+				u32 i,n[2]={1,23};
 
-				cpu->Query(ICORE_QUERY_PC,&i);//25aa4
-				n=(u32)1;
-				if(cpu->Query(ICORE_QUERY_NEXT_STEP,&n))
-					n=2;
-				i+=n;//fixme
-				_pc = 0x80000000|(u32)i;
+				cpu->Query(ICORE_QUERY_PC,&i);//25aa4f
+				n[0]=(u32)1;
+				if(cpu->Query(ICORE_QUERY_NEXT_STEP,n))
+					n[0]=2;
+				i += n[0];//fixme
+				_pc = 0x8000000000000000|(u32)i;
 			}
+			DebugWindow::_updateToolbar();
+		break;
+		case 8://f12
+			if(!BT(_status,S_DEBUG))
+				return -1;
+			BS(_status,S_DEBUG_NEXT_FRAME);
+			BC(_status,S_PAUSE);
 			DebugWindow::_updateToolbar();
 		break;
 	}
 #endif
 	return 0;
+}
+
+HTREEITEM DebugWindow::GetListItemFromAddress(HWND w,u32 n){
+	HTREEITEM piter;
+	u32 i,a;
+	char *string;
+#ifdef __WIN32__
+
+#else
+	GtkListStore *model;
+
+	model = (GtkListStore *)gtk_tree_view_get_model((GtkTreeView *)w);
+	if(model == NULL)
+		return NULL;
+	if((piter = new GtkTreeIter[1]) == NULL)
+		return NULL;
+	i=0;
+	gtk_tree_model_get_iter_first((GtkTreeModel *)model,piter);
+	goto B;
+	for(;;i++){
+		if(!gtk_tree_model_iter_next((GtkTreeModel *)model,piter))
+			goto _err;
+B:
+		gtk_tree_model_get((GtkTreeModel *)model, piter, 0, &string, -1);
+		sscanf(string+4,"%x",&a);
+		free(string);
+		if(a==n)  return piter;
+	}
+_err:
+	delete piter;
+#endif
+	return NULL;
 }
 
 int DebugWindow::GetAddressFromSelectedItem(HWND win,u32 *adr){
@@ -968,6 +1101,19 @@ int DebugWindow::GetAddressFromSelectedItem(HWND win,u32 *adr){
 void DebugWindow::OnButtonClicked(u32 id,HWND w){
 #ifdef _DEBUG
 	switch(id){
+		case 5518:{
+			int i;
+			HWND win;
+
+			win=GetDlgItem(_window,RES(IDC_DEBUG_TAB));
+			_memPages._addPage(win,0,0,&i);
+#ifdef __WIN32__
+#else
+			gtk_notebook_set_current_page(GTK_NOTEBOOK (win),i);
+			//i=gtk_combo_box_get_active(GTK_COMBO_BOX(w));
+#endif
+		}
+		break;
 		case 5600:
 		case 5601:
 		case 5602:
@@ -981,7 +1127,7 @@ void DebugWindow::OnButtonClicked(u32 id,HWND w){
 			DebugMode(3);
 		break;
 		case 5502:
-			DebugMode(4);
+			DebugMode(8);
 		break;
 		case IDC_DEBUG_RUN:
 			DebugMode(5);
@@ -992,7 +1138,6 @@ void DebugWindow::OnButtonClicked(u32 id,HWND w){
 		case 5506://jump to address
 			{
 				u32 a;
-				double d;
 				char c[30];
 				HWND ww,e;
 #ifdef __WIN32__
@@ -1022,25 +1167,39 @@ void DebugWindow::OnButtonClicked(u32 id,HWND w){
 			}
 		break;
 		case 5510:
-			if(!LoadBreakpoints())
-				Update();
+//			if(!LoadBreakpoints())
+	//			Update();
 		break;
 		default:
-			if(id>=0x10000 && id < 0x19000){
-				HWND ww;
-				char c[20],*p;
-
-				sprintf(c,"%d",id+0x10000);
+			switch(SR(id,16)){
+				case 4:
+					if(!_memPages._close()){
+						HWND win=GetDlgItem(_window,RES(IDC_DEBUG_TAB));
 #ifdef __WIN32__
 #else
-				if((ww=GetDlgItem(_window,c)) && (p=(char *)gtk_entry_get_text(GTK_ENTRY(ww)))){
-					u32 u;
-
-					sscanf(p,"%x",&u);
-					if(!cpu->Query(ICORE_QUERY_DBG_DUMP_ADDRESS,(void *)(u64)u))
-						Update();
-				}
+						gint n=gtk_notebook_get_current_page(GTK_NOTEBOOK (win));
+						gtk_notebook_set_current_page(GTK_NOTEBOOK (win),_memPages._iPage);
+						gtk_notebook_remove_page(GTK_NOTEBOOK (win),n);
 #endif
+					}
+				break;
+				case 1:{
+					HWND ww;
+					char c[20],*p;
+
+					sprintf(c,"%d",(u16)id +0x20000);
+#ifdef __WIN32__
+#else
+					if((ww=GetDlgItem(_window,c)) && (p=(char *)gtk_entry_get_text(GTK_ENTRY(ww)))){
+						u32 u;
+
+						sscanf(p,"%x",&u);
+						_memPages._setPageAddress(u);
+						Update();
+					}
+#endif
+				}
+				break;
 			}
 			break;
 	}
@@ -1055,12 +1214,34 @@ void DebugWindow::OnScroll(u32 id,HWND w,GtkScrollType t){
 #else
 	GtkAdjustment *control;
 
-	if((control = gtk_range_get_adjustment((GtkRange *)w)) == NULL)
+	if((control = gtk_range_get_adjustment(GTK_RANGE(w))) == NULL)
 		return;
 	g_object_get((gpointer)control,"lower",&d,"upper",&d1,"value",&d2,"page-increment",&d3,NULL);
+	switch(id){
+		case IDC_DEBUG_SB:
 	//printf("sb %.2f %.2f %.2f\n",d,d1,d2);
+
+		_adjustCodeViewport((u32)d2+_views[DBV_VIEW].uAdr,DBV_VIEW);
+		break;
+		case IDC_DEBUG_DA1*10:{
+			char c[20];
+
+			HWND ww=GetDlgItem(_window,RES(CONCAT(IDC_DEBUG_DA1,00)));
+			sprintf(c,"%u",(u32)d2);
+			gtk_label_set_text(GTK_LABEL(ww),c);
+			gtk_widget_queue_draw(GetDlgItem(_window,RES(IDC_DEBUG_DA1)));
+		}
+		break;
+		default:
+			switch(SR(id,16)){
+				case 5:
+					if(!_memPages._onScroll(id,w,t))
+						Update();
+					break;
+			}
+		break;
+	}
 #endif
-	_adjustCodeViewport((u32)d2+_views[DBV_VIEW].uAdr,DBV_VIEW);
 #endif
 }
 
@@ -1070,7 +1251,8 @@ int DebugWindow::Reset(){
 	_pc=0;
 	memset(&_views,0,sizeof(_views));
 	_iCurrentView=DBV_VIEW;
-	_startAddress=_endAddress=0;
+	_memPages._reset();
+//	_memPages._setPageAddress(0x8008a078);
 	BC(_status,S_DEBUG_NEXT);
 	return 0;
 }
@@ -1083,12 +1265,13 @@ int DebugWindow::LoadBreakpoints(char *fn){
 	ICore *pu;
 	char c[1025];
 
+	if(!fn || !*fn) return -1;
 	*((u64 *)c)=0;
 	if(fn)
 		strcpy(c,fn);
 	strcat(c,".bk");
 	if(!cpu || !(fp=fopen(c,"rb")))
-		return -1;
+		return -2;
 	pu=cpu;
 	pu->Query(ICORE_QUERY_CPU_ACTIVE_INDEX,&ac);
 //printf("%s %s %s\n",__FILE__,__FUNCTION__,c);
@@ -1129,13 +1312,14 @@ int DebugWindow::SaveBreakpoints(char *fn){
 	ICore *pu;
 	char c[1025];
 
+	if(!fn || !*fn) return -1;
 	*((u64 *)c)=0;
 	if(fn)
 		strcpy(c,fn);
 	strcat(c,".bk");
 
 	if(!cpu || !(fp=fopen(c,"wb")))
-		return -1;
+		return -2;
 	pu=cpu;
 	for(u32 i=0;;i++){
 		u32 p[5];
@@ -1160,7 +1344,6 @@ B:
 		p[0]=p[1]=0xFFFFFFFF;
 		fwrite(p,sizeof(u64),1,fp);
 	}
-A:
 	fclose(fp);
 #endif
 	return res;
@@ -1170,11 +1353,11 @@ int DebugWindow::Loop(){
 	int ret=0;
 #ifdef _DEBUG
 	if(BT(_status,S_DEBUG_NEXT)){
-		switch(SR(_pc,31)){
+		switch(SR(_pc,63)){
 			case 0:{
 					u32 i=_pc&0xfffffff;
 					if(--i == 0){
-						switch(SR(_pc&0x70000000,28)){
+						switch(SR(_pc,60)&7){
 							case 0:
 								BC(_status,S_DEBUG_NEXT);
 								Update();
@@ -1189,12 +1372,12 @@ int DebugWindow::Loop(){
 						_pc=0;
 						return -1;
 					}
-					_pc = (_pc & 0xF0000000)|i;
+					_pc = (_pc & 0xF000000000000000)|i;
 				}
 				ret=0;
 			break;
 			case 1:{
-				u32 __pc,i=_pc&0x7fffffff;
+				u32 __pc,i=_pc&0x7fffffffffffffff;
 
 				if(!cpu->Query(ICORE_QUERY_PC,&__pc) && __pc==i){
 					ShowToastMessage((char *)"Reached cursor.");
@@ -1211,7 +1394,6 @@ int DebugWindow::Loop(){
 		return 0;
 	}
 #endif
-A:
 	if(BT(_status,S_PAUSE|S_DEBUG_UPDATE))
 		ret=-1;
 	BC(_status,S_DEBUG_UPDATE);
@@ -1226,16 +1408,16 @@ int DebugWindow::OnDisableCore(){
 #ifdef __WIN32__
 #else
 	win=GetDlgItem(_window,RES(IDC_DEBUG_TAB));
-	int i = gtk_notebook_get_n_pages(GTK_NOTEBOOK (win))-1;
+	int i = gtk_notebook_get_n_pages(GTK_NOTEBOOK (win))-1;///remove allpages withoutLog
 	for(;i>0;i--){
 		//GtkWidget *p=gtk_notebook_get_nth_page(GTK_NOTEBOOK (win),0);
 		gtk_notebook_remove_page(GTK_NOTEBOOK (win),0);
 		//	if(p)
 		//	gtk_widget_destroy(p);
 	}
-	if(!(win=GetDlgItem(_window,RES(IDC_DEBUG_TAB1))))
+	if(!(win=GetDlgItem(_window,RES(IDC_DEBUG_TAB1))))//tab on top
 		goto B;
-	i = gtk_notebook_get_n_pages(GTK_NOTEBOOK (win))-5;
+	i = gtk_notebook_get_n_pages(GTK_NOTEBOOK (win))-6;
 	for(;i>0;i--){
 		//GtkWidget *p=gtk_notebook_get_nth_page(GTK_NOTEBOOK (win),0);
 		gtk_notebook_remove_page(GTK_NOTEBOOK (win),0);
@@ -1265,6 +1447,7 @@ int DebugWindow::OnEnableCore(){
 	LPDEBUGGERPAGE p=NULL;
 	u32 id;
 	char *s;
+	int i;
 
 	if(!_window || !cpu || cpu->Query(ICORE_QUERY_CPUS,&s) || !s)
 		goto B;
@@ -1272,7 +1455,6 @@ int DebugWindow::OnEnableCore(){
 		goto B;
 
 	for(char *ss=s,i=0;*ss;i++){
-		char *c=ss;
 #ifdef __WIN32__
 #else
 		if(i!=0){
@@ -1309,6 +1491,7 @@ B:
 	if(!(win=GetDlgItem(_window,RES(IDC_DEBUG_MENUBAR))))
 		goto A;
 
+	if(!*s)  goto E;
 	e=gtk_menu_new();
 	w=gtk_menu_item_new_with_label ("Machine");
 	gtk_menu_item_set_submenu(GTK_MENU_ITEM(w), e);
@@ -1325,20 +1508,37 @@ B:
 				if((u8)SR(v[1],8))
 					gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(a),true);
 			break;
+			case 0:
+				a=NULL;
+			break;
 			default:
 				a = gtk_menu_item_new_with_label (c);
 			break;
 		}
-		gtk_widget_set_name(a,MAKELONG(IDC_DEBUG_MENUBAR,(v[0]&0xfff)|SL(v[1] & 7,12)|0x8000));
-		gtk_menu_shell_append (GTK_MENU_SHELL (e), a);
-		gtk_widget_show(a);
-		g_signal_connect (a, "activate", G_CALLBACK (::on_menuitem_select), NULL);
-		switch((u8)SR(v[1],8)){
-			case 1:
+		if(a){
+			gtk_widget_set_name(a,MAKELONG(IDC_DEBUG_MENUBAR,(v[0]&0xfff)|SL(v[1] & 7,12)|0x8000));
+			gtk_menu_shell_append (GTK_MENU_SHELL (e), a);
+			gtk_widget_show(a);
+			g_signal_connect (a, "activate", G_CALLBACK (::on_menuitem_select), NULL);
+		}
+		switch((u8)SR(v[1],16)){
+			case 1:{
+				char cc[10];
+
 				a=GetDlgItem(_window,RES(IDC_DEBUG_LAYERS_CB));
-				gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(a),NULL,c);
+				sprintf(cc,"%u",v[0]);
+				gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(a),cc,c);
+			}
 			break;
 		}
+	}
+E:
+	a=GetDlgItem(_window,RES(IDC_DEBUG_OAM_CB));
+	for(i=0;i<129;i++){
+		char c[10];
+
+		sprintf(c,"OAM %d",i);
+		gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(a),NULL,c);
 	}
 #endif
 	delete []s;
@@ -1347,64 +1547,102 @@ A:
 		return -1;
 #ifdef __WIN32__
 #else
-	win=GetDlgItem(_window,RES(IDC_DEBUG_TAB));
+	i=1;
 	for(LPDEBUGGERPAGE pp=p;pp->size;pp++){
 		sscanf(pp->name,"%d",&id);
 		e=0;
+		if(pp->group)
+			goto C;
+		win=GetDlgItem(_window,RES(IDC_DEBUG_TAB));
 		switch(pp->type){
-			case 2:
-				{
-					char c[30];
+			case 3:
+			case 2:{
+				char c[30];
 
-					GtkWidget *b=gtk_box_new(GTK_ORIENTATION_VERTICAL,5);
-					GtkWidget *a=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,5);
-					e=gtk_entry_new();
-					sprintf(c,"%d",id+0x20000);
-					gtk_widget_set_name(e,c);
-					gtk_container_add (GTK_CONTAINER (a),e);
+				HWND cb,mb,b=gtk_box_new(GTK_ORIENTATION_VERTICAL,5);
+				a=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,5);
 
-					e=gtk_button_new_from_icon_name("gtk-jump-to",GTK_ICON_SIZE_MENU);
-					sprintf(c,"%d",id+0x10000),
+				e=gtk_entry_new();
+				sprintf(c,"%d",id|0x20000);
+				gtk_widget_set_name(e,c);
+				gtk_container_add (GTK_CONTAINER (a),e);
+
+				e=gtk_button_new_from_icon_name("gtk-jump-to",GTK_ICON_SIZE_MENU);
+				sprintf(c,"%d",id|0x10000),
+				gtk_widget_set_name(e,c);
+				g_signal_connect(G_OBJECT(e),"clicked",G_CALLBACK(on_button_clicked),0);
+				gtk_container_add (GTK_CONTAINER (a),e);
+
+				e=gtk_combo_box_text_new();
+				gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(e),NULL,"8 bits");
+				gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(e),NULL,"16 bits");
+				gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(e),NULL,"32 bits");
+				gtk_combo_box_set_active(GTK_COMBO_BOX(e),0);
+				sprintf(c,"%d",id|0x30000),
+				gtk_widget_set_name(e,c);
+				g_signal_connect(G_OBJECT(e),"changed",G_CALLBACK(::on_command),0);
+				gtk_container_add (GTK_CONTAINER (a),e);
+
+				if(pp->type==2){
+					e=gtk_button_new_from_icon_name("gtk-add",GTK_ICON_SIZE_MENU);
+					sprintf(c,"%d",5518),
 					gtk_widget_set_name(e,c);
 					g_signal_connect(G_OBJECT(e),"clicked",G_CALLBACK(on_button_clicked),0);
-
 					gtk_container_add (GTK_CONTAINER (a),e);
-					e=gtk_combo_box_text_new();
-					gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(e),NULL,"8 bits");
-					gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(e),NULL,"16 bits");
-					gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(e),NULL,"32 bits");
-					gtk_combo_box_set_active(GTK_COMBO_BOX(e),0);
-					sprintf(c,"%d",id+0x30000),
-					gtk_widget_set_name(e,c);
-					g_signal_connect(G_OBJECT(e),"changed",G_CALLBACK(::on_command),0);
-					gtk_container_add (GTK_CONTAINER (a),e);
-					gtk_box_pack_start(GTK_BOX(b),(HWND)a,false,false,0);
 
-					a=gtk_viewport_new(NULL,NULL);
-					e=gtk_text_view_new();
-					gtk_text_view_set_monospace(GTK_TEXT_VIEW(e),true);
-					gtk_text_view_set_editable(GTK_TEXT_VIEW(e),false);
-					gtk_widget_set_name(e,pp->name);
-					//
-					GtkTextBuffer  *bu = gtk_text_view_get_buffer(GTK_TEXT_VIEW(e));
-					gtk_text_buffer_create_tag(bu, "u","foreground", "red", NULL);
-					//gtk_text_buffer_create_tag(bu, "n","background", "white", NULL);
+					cb=gtk_button_new_from_icon_name("gtk-close",GTK_ICON_SIZE_MENU);
+					sprintf(c,"%d",id|0x40000),
+					gtk_widget_set_name(cb,c);
+					gtk_widget_set_sensitive(cb,false);
+					g_signal_connect(G_OBJECT(cb),"clicked",G_CALLBACK(on_button_clicked),0);
+					gtk_container_add (GTK_CONTAINER (a),cb);
 
-					g_object_set_data(G_OBJECT(e),"id",(gpointer)(u64)id);
-					if(pp->popup)
-						g_signal_connect(G_OBJECT(e),"populate-popup",G_CALLBACK(on_menu_init),0);
-					//if(pp->editable)
-						//g_signal_connect(G_OBJECT(e),"populate-popup",G_CALLBACK(on_menu_init),0);
-					if(pp->clickable)
-						g_signal_connect(G_OBJECT(e), "button-press-event", G_CALLBACK(::on_mouse_down), NULL);
-					gtk_container_add (GTK_CONTAINER (a),e);
-					e = gtk_scrolled_window_new(NULL,NULL);
-					gtk_container_add (GTK_CONTAINER (e),a);
-
-					gtk_box_pack_start(GTK_BOX(b),(HWND)e,TRUE,TRUE,0);
-
-					e=b;
+					mb=gtk_menu_button_new();
+					sprintf(c,"%d",id|0x60000),
+					gtk_widget_set_name(mb,c);
+					//g_signal_connect(G_OBJECT(e),"clicked",G_CALLBACK(on_button_clicked),0);
+					gtk_container_add (GTK_CONTAINER (a),mb);
 				}
+
+				gtk_box_pack_start(GTK_BOX(b),(HWND)a,false,false,0);
+
+				e=gtk_text_view_new();
+				gtk_text_view_set_monospace(GTK_TEXT_VIEW(e),true);
+				gtk_text_view_set_editable(GTK_TEXT_VIEW(e),false);
+				gtk_widget_set_name(e,id);
+				//
+				GtkTextBuffer  *bu = gtk_text_view_get_buffer(GTK_TEXT_VIEW(e));
+				gtk_text_buffer_create_tag(bu, "u","foreground", "red", NULL);
+				//gtk_text_buffer_create_tag(bu, "n","background", "white", NULL);
+
+				g_object_set_data(G_OBJECT(e),"id",(gpointer)(u64)id);
+				g_object_set_data(G_OBJECT(e),"type",(gpointer)(u64)pp->type);
+				if(pp->popup)
+					g_signal_connect(G_OBJECT(e),"populate-popup",G_CALLBACK(on_menu_init),0);
+				//if(pp->editable)
+					//g_signal_connect(G_OBJECT(e),"populate-popup",G_CALLBACK(on_menu_init),0);
+				if(pp->clickable)
+					g_signal_connect(G_OBJECT(e), "button-press-event", G_CALLBACK(::on_mouse_down), NULL);
+
+				a=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,5);
+				gtk_box_pack_start (GTK_BOX (a),e,TRUE,TRUE,0);
+
+				w = gtk_scrollbar_new(GTK_ORIENTATION_VERTICAL,NULL);
+				sprintf(c,"%d",id|0x50000),
+				gtk_widget_set_name(w,c);
+			//	gtk_range_set_slider_size_fixed(GTK_RANGE(w),true);
+				//gtk_range_set_round_digits(GTK_RANGE(w),0);
+				g_signal_connect(G_OBJECT(w),"change-value",G_CALLBACK(on_scroll_change),0);
+				gtk_box_pack_start (GTK_BOX (a),w,0,0,0);
+
+				g_signal_connect (e, "scroll-event", G_CALLBACK (::on_scroll_event), (gpointer)w);
+
+				gtk_box_pack_start(GTK_BOX(b),a,TRUE,TRUE,0);
+
+				_memPages._connect(id,b,e,w,cb,mb);
+				_memPages._addPage(0,pp->attributes,&e);
+				gtk_container_add (GTK_CONTAINER (e),b);
+			}
 			break;
 			case 1:
 				{
@@ -1415,6 +1653,7 @@ A:
 					gtk_text_view_set_editable(GTK_TEXT_VIEW(a),false);
 					gtk_widget_set_name(a,pp->name);
 					g_object_set_data(G_OBJECT(a),"id",(gpointer)(u64)id);
+					g_object_set_data(G_OBJECT(a),"type",(gpointer)(u64)pp->type);
 
 					GtkTextBuffer  *bu = gtk_text_view_get_buffer(GTK_TEXT_VIEW(a));
 					gtk_text_buffer_create_tag(bu, "u","foreground", "red", NULL);
@@ -1434,14 +1673,21 @@ A:
 			}
 			break;
 		}
+		goto D;
+C:
+D:
 		if(e){
+			gtk_widget_show_all(e);
 			w = gtk_label_new (pp->title);
-			int i = gtk_notebook_get_n_pages(GTK_NOTEBOOK (win));
-			gtk_notebook_insert_page(GTK_NOTEBOOK (win), e, w,i-1);
+		//	int i = gtk_notebook_get_n_pages(GTK_NOTEBOOK (win));
+			//g_object_set_data(G_OBJECT(e),"type",(gpointer)(u64)pp->type);
+			int z=gtk_notebook_insert_page(GTK_NOTEBOOK (win), e, w,i++-1);
+			if(pp->type==2)	_memPages._iPage=z;
+
 			//gtk_notebook_prepend_page(GTK_NOTEBOOK (win), e, w);
 		}
 	}
-	gtk_widget_show_all(win);
+
 	if(p)
 		free(p);
 	//gtk_notebook_reorder_child(GTK_NOTEBOOK(win),gtk_notebook_get_nth_page(GTK_NOTEBOOK(win),0),-1);
@@ -1471,7 +1717,7 @@ A:
 	gtk_notebook_append_page(GTK_NOTEBOOK (win), e, w);
 	*/
 #endif
-
+	_memPages._reset();
 #endif
 	return 0;
 }
@@ -1482,6 +1728,27 @@ void DebugWindow::OnCommand(u32 id,u32 type,HWND w){
 #ifdef __WIN32__
 #else
 	switch(id){
+		case IDC_DEBUG_LB_BP:
+		case IDC_DEBUG_LB_DIS:{
+			u32 a;
+
+			if(!GetAddressFromSelectedItem(w,&a))
+				_updateAddressInfo(a);
+		}
+			break;
+		case IDC_DEBUG_TAB:
+			switch((u16)type){
+				case GDK_BUTTON_PRESS:
+				case GDK_BUTTON_RELEASE:{
+					HWND e = gtk_notebook_get_nth_page(GTK_NOTEBOOK(w),SR(type,16));
+					if((u32)(u64)g_object_get_data(G_OBJECT(e),"type") == 2){
+						_memPages._switchPage((u32)(u64)g_object_get_data(G_OBJECT(e),"index"),e);
+						Update();
+					}
+				}
+				break;
+			}
+			break;
 		case IDC_DEBUG_TAB1:
 			switch((u16)type){
 				case GDK_BUTTON_PRESS:{
@@ -1495,12 +1762,30 @@ void DebugWindow::OnCommand(u32 id,u32 type,HWND w){
 		case 5609:
 			DebugLog::OnCommand(id,type,w);
 		break;
+		case IDC_DEBUG_LAYERS_CB:{
+			u8 *data;
+			u32 params[10]={0};
+
+			data = (u8 *)gtk_combo_box_get_active_id(GTK_COMBO_BOX(w));
+			params[0] = stoi((char *)data);
+			data=(u8 *)&params;
+			if(!cpu || cpu->Query(ICORE_QUERY_DBG_LAYER,&data)){
+				data=NULL;
+			}
+			HWND win = GetDlgItem(_window,RES(CONCAT(IDC_DEBUG_DA1,0)));
+			GtkAdjustment *d=gtk_range_get_adjustment(GTK_RANGE(win));
+			gtk_adjustment_configure(GTK_ADJUSTMENT(d),0,0,params[2],1,LOWORD(params[1]),256);
+		}
+		break;
+		case IDC_DEBUG_OAM_CB:
+		break;
 		default:
-			//case 3102:
-			if(id>0x30000){
-				int i=gtk_combo_box_get_active(GTK_COMBO_BOX(w));
-				if(!cpu->Query(ICORE_QUERY_DBG_DUMP_FORMAT,(void *)(u64)(i*2)))
+			switch(SR(id,16)){
+				case 3:
+					int i=gtk_combo_box_get_active(GTK_COMBO_BOX(w));
+					_memPages._setPageDumpMode(i*2);
 					Update();
+				break;
 			}
 			break;
 	}
@@ -1510,13 +1795,12 @@ void DebugWindow::OnCommand(u32 id,u32 type,HWND w){
 }
 
 int DebugWindow::OnChangeCpu(u32 c){
-
 #ifdef _DEBUG
 	HWND w,win,page,a;
 	u32 p[5];
 
 	p[0]=c;
-	if(cpu->Query(ICORE_QUERY_CPU_INTERFACE,&p))
+	if(!cpu || cpu->Query(ICORE_QUERY_CPU_INTERFACE,&p))
 		return -1;
 #ifdef __WIN32__
 #else
@@ -1576,13 +1860,12 @@ void DebugWindow::OnRButtonDown(u32 id,HWND ww){
 		case IDC_DEBUG_LB_BP:
 		{
 			HWND w,m=gtk_menu_new();
-			u32 adr;
 
 			//GetAddressFromSelectedItem(ww,&adr);
 			//d[0]=GetSelectedListItemIndex(w);
 
 			w = gtk_menu_item_new_with_label ("Copy");
-			gtk_widget_set_name(w,MAKELONG(IDC_DEBUG_LB_BP,8));
+			gtk_widget_set_name(w,MAKELONG(IDC_DEBUG_LB_BP,10));
 			gtk_menu_shell_append (GTK_MENU_SHELL (m), w);
 			gtk_widget_show(w);
 			g_signal_connect (w, "activate", G_CALLBACK (::on_menuitem_select), NULL);
@@ -1613,6 +1896,12 @@ void DebugWindow::OnRButtonDown(u32 id,HWND ww){
 
 			w = gtk_menu_item_new_with_label ("Delete all");
 			gtk_widget_set_name(w,MAKELONG(IDC_DEBUG_LB_BP,7));
+			gtk_menu_shell_append (GTK_MENU_SHELL (m), w);
+			gtk_widget_show(w);
+			g_signal_connect (w, "activate", G_CALLBACK (::on_menuitem_select), NULL);
+
+			w = gtk_menu_item_new_with_label ("Disable all");
+			gtk_widget_set_name(w,MAKELONG(IDC_DEBUG_LB_BP,8));
 			gtk_menu_shell_append (GTK_MENU_SHELL (m), w);
 			gtk_widget_show(w);
 			g_signal_connect (w, "activate", G_CALLBACK (::on_menuitem_select), NULL);
@@ -1673,20 +1962,20 @@ A:
 		break;
 		case 3105:
 			w = gtk_menu_item_new_with_label ("Change...");
-			gtk_widget_set_name(w,MAKELONG(3105,5));
+			gtk_widget_set_name(w,MAKELONG(id,5));
 			gtk_menu_shell_append (GTK_MENU_SHELL (menu), w);
 			gtk_widget_show(w);
 			g_signal_connect (w, "activate", G_CALLBACK (::on_menuitem_select), NULL);
 		break;
 		case 3102:
-			if(_editAddress){
+			if(_memPages._editAddress){
 				w = gtk_menu_item_new_with_label ("Change...");
 				gtk_widget_set_name(w,MAKELONG(id,5));
 				gtk_menu_shell_append (GTK_MENU_SHELL (menu), w);
 				gtk_widget_show(w);
 				g_signal_connect (w, "activate", G_CALLBACK (::on_menuitem_select), NULL);
 
-				w = gtk_menu_item_new_with_label ("...to breakpoint");
+				w = gtk_menu_item_new_with_label ("...to watchpoint");
 				gtk_widget_set_name(w,MAKELONG(id,6));
 				gtk_menu_shell_append (GTK_MENU_SHELL (menu), w);
 				gtk_widget_show(w);
@@ -1769,7 +2058,6 @@ void DebugWindow::OnMenuItemSelect(u32 id,HMENUITEM item){
 	pp.res=0;
 	if(!cpu->Query(ICORE_QUERY_DBG_PAGE_EVENT,&pp))
 		return;
-
 	switch((u16)id){
 		case IDC_DEBUG_TV1:
 			switch(SR(id,16)){
@@ -1804,6 +2092,12 @@ void DebugWindow::OnMenuItemSelect(u32 id,HMENUITEM item){
 				case 6:
 					_status ^= DEBUG_BREAK_OPCODE;
 				break;
+				case 7:
+					_status ^= DEBUG_BREAK_DEVICE;
+				break;
+				case 8:
+					_status ^= DEBUG_BREAK_VBLANK;
+				break;
 				case 9:
 					_status ^= DEBUG_LOG_DEV;
 				break;
@@ -1820,16 +2114,14 @@ void DebugWindow::OnMenuItemSelect(u32 id,HMENUITEM item){
 		break;
 		case IDC_DEBUG_LB_BP:
 			switch(SR(id,16)){
-				case 4:
-				{
+				case 4:{
 					if(!GetAddressFromSelectedItem(GetDlgItem(_window,RES(IDC_DEBUG_LB_BP)),d)){
 						_adjustCodeViewport(*d,DBV_VIEW);
 						gtk_notebook_set_current_page(GTK_NOTEBOOK(GetDlgItem(_window,RES(IDC_DEBUG_TAB1))),0);
 					}
 				}
 				break;
-				case 5:
-				{
+				case 5:{
 					u32 d[2];
 
 					d[0]=GetSelectedListItemIndex(w);
@@ -1838,8 +2130,7 @@ void DebugWindow::OnMenuItemSelect(u32 id,HMENUITEM item){
 						Update();
 				}
 				break;
-				case 6:
-				{
+				case 6:{
 					u32 d[2];
 					d[0]=GetSelectedListItemIndex(w);
 					d[1]=(u32)-1;
@@ -1853,13 +2144,27 @@ void DebugWindow::OnMenuItemSelect(u32 id,HMENUITEM item){
 					if(!cpu->Query(ICORE_QUERY_BREAKPOINT_CLEAR,NULL))
 						Update();
 				break;
-				case 8:
-				{
+				case 8:{
+					u32 d[2];
+
+					if(!cpu->Query(ICORE_QUERY_BREAKPOINT_COUNT,d)){
+						u32 c=d[0];
+						for(u32 n=0;n<c;n++){
+							d[0]=n;
+							d[1]=0;
+							cpu->Query(ICORE_QUERY_SET_BREAKPOINT_STATE,d);
+						}
+						Update();
+					}
+				}
+				break;
+				case 0xa:{
 					if(!GetAddressFromSelectedItem(GetDlgItem(_window,RES(IDC_DEBUG_LB_BP)),d)){
 						char s[20];
 
 						sprintf(s,"%x",*d);
 						gtk_clipboard_set_text(gtk_widget_get_clipboard(_window,GDK_SELECTION_CLIPBOARD),(gchar *)s,-1);
+						ShowToastMessage((char *)"Address copied.");
 					}
 				}
 				break;
@@ -1871,14 +2176,13 @@ void DebugWindow::OnMenuItemSelect(u32 id,HMENUITEM item){
 					d[1]=(u32)-1;
 					if(!cpu->Query(ICORE_QUERY_BREAKPOINT_INFO,d)){
 						if(!ChangeBreakpointBox((char *)"Edit Breakpoint",(u64 *)&d[1])){
-							cpu->Query(ICORE_QUERY_BREAKPOINT_SET,d);
+							cpu->Query(ICORE_QUERY_SET_BREAKPOINT,d);
 							Update();
 						}
 					}
 				}
 				break;
-				default:
-				{
+				default:{
 					u32 d[2];
 
 					d[0]=GetSelectedListItemIndex(w);
@@ -1889,89 +2193,133 @@ void DebugWindow::OnMenuItemSelect(u32 id,HMENUITEM item){
 				break;
 			}
 		break;
-		case 3105:
-		case 3102:
-			switch(SR(id,16)){
-				case 6:{
-						d[0]=_editAddress;
-						d[1]=0x80008007;
-						cpu->Query(ICORE_QUERY_BREAKPOINT_ADD,d);
-						Update();
-					}
-				break;
-				case 8:
-				case 9:
-				case 10:{
-					b=gtk_text_view_get_buffer(GTK_TEXT_VIEW(w));
-					if(gtk_text_buffer_get_selection_bounds(b,&ss,&se)){
-						c=gtk_text_buffer_get_text(b,&ss,&se,FALSE);
-					}
-
-					d[0]=_editAddress;
-					d[1]=0;
-					d[2]=SR(id,16)-8;
-					d[3]=id;
-					d[4]=10;
-					cpu->Query(ICORE_QUERY_SET_LOCATION,d);
-					Update();
-				}
-				break;
-				case 7:{
-					c = new char[1000];
-					*((u64 *)d)=(u64)c;
-					if(!ChangeLocationBox((char *)"Find...",d,2)){
-						SearchWord(c);
-					}
-					delete []c;
-				}
-				break;
-				default:{
-					d[0]=_editAddress;
-					d[1]=0;
-					d[2]=0;
-					d[3]=id;
-					//printf("de %x\n",id);
-					if(!ChangeLocationBox((char *)"Change Memory...",d)){
-						cpu->Query(ICORE_QUERY_SET_LOCATION,d);
-						Update();
-					}
-				}
-		}
-		break;
 		default:
-			b=gtk_text_view_get_buffer(GTK_TEXT_VIEW(w));
-			gtk_text_buffer_get_selection_bounds(b,&ss,&se);
-			c=gtk_text_buffer_get_text(b,&ss,&se,FALSE);
-			d[0]=-1;
-			if(sscanf(c,"%c%d",s,&d[0]) != 2)
-				*((void **)&d[2])=c;
-			switch(SR(id,16)){
+			i = (u32)(u64)g_object_get_data(G_OBJECT(w),"type");
+			switch(i){
 				case 1:
-					d[1]=0;
-					cpu->Query(ICORE_QUERY_SET_REGISTER,d);
-					Update();
+					b=gtk_text_view_get_buffer(GTK_TEXT_VIEW(w));
+					gtk_text_buffer_get_selection_bounds(b,&ss,&se);
+					c=gtk_text_buffer_get_text(b,&ss,&se,FALSE);
+					d[0]=-1;
+					if(sscanf(c,"%c%d",s,&d[0]) != 2 || s[0] != 'r'){
+						*((void **)&d[2])=c;
+						d[0]=-1;
+					}
+					switch(SR(id,16)){
+						case 1:
+							d[1]=0;
+							cpu->Query(ICORE_QUERY_SET_REGISTER,d);
+							Update();
+						break;
+						case 2:
+							cpu->Query(ICORE_QUERY_REGISTER,d);
+							d[1]+=1;
+							cpu->Query(ICORE_QUERY_SET_REGISTER,d);
+							Update();
+						break;
+						case 3:
+							cpu->Query(ICORE_QUERY_REGISTER,d);
+							d[1]-=1;
+							cpu->Query(ICORE_QUERY_SET_REGISTER,d);
+							Update();
+						break;
+						case 4:
+							cpu->Query(ICORE_QUERY_REGISTER,d);
+							if(!ChangeLocationBox((char *)"Change Register",d,BV(0))){
+								cpu->Query(ICORE_QUERY_SET_REGISTER,d);
+								DebugWindow::Update();
+							}
+						break;
+					}
 				break;
 				case 2:
-					cpu->Query(ICORE_QUERY_REGISTER,d);
-					d[1]+=1;
-					cpu->Query(ICORE_QUERY_SET_REGISTER,d);
-					Update();
-				break;
-				case 3:
-					cpu->Query(ICORE_QUERY_REGISTER,d);
-					d[1]-=1;
-					cpu->Query(ICORE_QUERY_SET_REGISTER,d);
-					Update();
-				break;
-				case 4:
-					cpu->Query(ICORE_QUERY_REGISTER,d);
-					if(!ChangeLocationBox((char *)"Change Register",d,BV(0))){
-						cpu->Query(ICORE_QUERY_SET_REGISTER,d);
-						DebugWindow::Update();
+					switch(SR(id,16)){
+						case 6:{
+							d[0]=_memPages._editAddress;
+							d[1]=0x80008003;
+							cpu->Query(ICORE_QUERY_BREAKPOINT_ADD,d);
+							Update();
+						}
+						break;
+						case 8:
+						case 9:
+						case 10:{
+							b=gtk_text_view_get_buffer(GTK_TEXT_VIEW(w));
+							if(gtk_text_buffer_get_selection_bounds(b,&ss,&se)){
+								c=gtk_text_buffer_get_text(b,&ss,&se,FALSE);
+							}
+
+							d[0]=_memPages._editAddress;
+							d[1]=0;
+							d[2]=SR(id,16)-8;
+							d[3]=id;
+							_memPages._getCurrentMode(&d[4]);
+							d[4]=(d[4]+1)*2;
+							cpu->Query(ICORE_QUERY_SET_LOCATION,d);
+							Update();
+						}
+						break;
+						case 7:{
+							if((c = new char[1000])){
+								*((u64 *)d)=(u64)c;
+								if(!ChangeLocationBox((char *)"Find...",d,2)){
+									SearchWord(c);
+								}
+								delete []c;
+							}
+						}
+						break;
+						case 5:{
+							d[0]=_memPages._editAddress;
+							d[1]=0;
+							d[2]=0;
+							d[3]=id;
+							//printf("de %x\n",id);
+							if(!ChangeLocationBox((char *)"Change Memory...",d)){
+								cpu->Query(ICORE_QUERY_SET_LOCATION,d);
+								Update();
+							}
+						}
+						break;
+						case 0x400:{
+							HWND ww;
+							char c[20],*p;
+
+							sprintf(c,"%d",(u16)id + 0x20000);
+#ifdef __WIN32__
+#else
+							if((ww=GetDlgItem(_window,c)) && (p=(char *)gtk_entry_get_text(GTK_ENTRY(ww)))){
+								u32 u;
+
+								sscanf(p,"%x",&u);
+								_memPages._addBookmark(u);
+							}
+#endif
+
+						}
+						break;
+						case 0x401:
+							_memPages._delBookmark();
+						break;
+						default:
+							if(SR(id,16)>=0x440 && SR(id,16) < 0x500){
+HWND ww;
+							char c[20],*p;
+
+							sprintf(c,"%d",(u16)id + 0x20000);
+#ifdef __WIN32__
+#else
+							if((ww=GetDlgItem(_window,c)) && (p=(char *)gtk_menu_item_get_label(GTK_MENU_ITEM(item)))){
+								gtk_entry_set_text(GTK_ENTRY(ww),p);
+								sprintf(c,"%d",(u16)id + 0x10000);
+								gtk_button_clicked(GTK_BUTTON(GetDlgItem(_window,c)));
+							}
+#endif
+							}
+						break;
 					}
 				break;
 			}
-			break;
 		}
 #endif
 
@@ -1981,7 +2329,7 @@ void DebugWindow::OnMenuItemSelect(u32 id,HMENUITEM item){
 int DebugWindow::OnLDblClk(u32 id,HWND w){
 	int res=-1;
 #ifdef _DEBUG
-	u32 adr,d[3];
+	u32 adr;
 	int x,y;
 #ifdef __WIN32__
 #else
@@ -2000,8 +2348,10 @@ int DebugWindow::OnLDblClk(u32 id,HWND w){
 			gchar *p=(gchar *)gtk_label_get_text(GTK_LABEL(w));
 			if(p){
 				while(*p && *p!=0x20) p++;
-				if(*p)
+				if(*p){
 					gtk_clipboard_set_text(gtk_widget_get_clipboard(_window,GDK_SELECTION_CLIPBOARD),p,-1);
+					ShowToastMessage((char *)"Address copied.");
+				}
 			}
 		}
 			return 0;
@@ -2009,7 +2359,6 @@ int DebugWindow::OnLDblClk(u32 id,HWND w){
 		case IDC_DEBUG_LB_DIS:
 		{
 			gdouble dx,dy;
-			u32 adr;
 
 			e=gtk_get_current_event();
 			gdk_event_get_coords(e,&dx,&dy);
@@ -2052,6 +2401,21 @@ int DebugWindow::OnLDblClk(u32 id,HWND w){
 			res=0;
 			goto C;
 		break;
+		case 1001:{
+			gdouble dx,dy;
+			char c[30];
+			if(!BT(_status,S_DEBUG))
+				goto C;
+
+			e=gtk_get_current_event();
+			gdk_event_get_coords(e,&dx,&dy);
+			sprintf(c,"%d %d",(int)dx,(int)dy);
+			ShowToastMessage(c);
+			goto C;
+		}
+		break;
+		case IDC_DEBUG_DA1:
+			printf("click\n");goto C;
 	}
 	e=gtk_get_current_event();
 	gdk_event_get_coords(e,&dx,&dy);
@@ -2092,7 +2456,7 @@ B:
 	}
 A:
 	DEVF("mm %x %d %d\n",adr,x,y);
-	_editAddress=adr;
+	_memPages._editAddress=adr;
 	Update();
 	res=0;
 C:
@@ -2109,7 +2473,7 @@ int DebugWindow::ChangeBreakpointBox(char *title,u64 *bp,u32 flags){
 	char c[30],*p;
 	u32 bd;
 	volatile int i;
-	HWND dialog,vb,e;
+	HWND dialog,vb,e,w;
 	u64 bkv;
 
 	bkv = *bp;
@@ -2133,20 +2497,31 @@ int DebugWindow::ChangeBreakpointBox(char *title,u64 *bp,u32 flags){
 	gtk_widget_set_name(e,10);
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(e),ISBREAKPOINTENABLED(*bp) !=0);
 
+	w=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,3);
+	gtk_box_set_homogeneous(GTK_BOX(w),true);
 	e=gtk_text_view_new();
 	gtk_text_view_set_monospace(GTK_TEXT_VIEW(e),true);
 	gtk_text_view_set_editable(GTK_TEXT_VIEW(e),false);
 	gtk_text_view_set_cursor_visible(GTK_TEXT_VIEW(e),false);
-	gtk_text_view_set_bottom_margin(GTK_TEXT_VIEW(e),5);
-	gtk_text_view_set_top_margin(GTK_TEXT_VIEW(e),5);
+	gtk_text_view_set_bottom_margin(GTK_TEXT_VIEW(e),4);
+	gtk_text_view_set_top_margin(GTK_TEXT_VIEW(e),4);
 	{
 		GtkTextBuffer *x=gtk_text_view_get_buffer(GTK_TEXT_VIEW(e));
 		sprintf(c,"%08X",(u32)*bp);
 		gtk_text_buffer_set_text(x,c,-1);
 	}
 	gtk_widget_set_name(e,1);
-	gtk_container_add (GTK_CONTAINER (vb),e);
-
+	gtk_box_pack_start(GTK_BOX (w),e,true,true,3);
+	//gtk_container_add (GTK_CONTAINER (w),e);
+	if(ISMEMORYBREAKPOINT(*bp)){
+		e=gtk_text_view_new();
+		gtk_text_view_set_monospace(GTK_TEXT_VIEW(e),true);
+		gtk_text_view_set_bottom_margin(GTK_TEXT_VIEW(e),4);
+		gtk_text_view_set_top_margin(GTK_TEXT_VIEW(e),4);
+		//gtk_container_add (GTK_CONTAINER (w),e);
+		gtk_box_pack_start(GTK_BOX (w),e,true,true,3);
+	}
+	gtk_container_add (GTK_CONTAINER (vb),w);
 
 	e=gtk_combo_box_text_new();
 	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(e),NULL,"Memory");
@@ -2162,7 +2537,7 @@ int DebugWindow::ChangeBreakpointBox(char *title,u64 *bp,u32 flags){
 		gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(e),NULL,"Read");
 		gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(e),NULL,"Write");
 		gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(e),NULL,"Read/Write");
-		i=SR(bd&0x30000000,28);
+		i=SR(bd & 0x30000000,28);
 	}
 	else{
 		gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(e),NULL,"Counter");
@@ -2183,21 +2558,21 @@ int DebugWindow::ChangeBreakpointBox(char *title,u64 *bp,u32 flags){
 
 		gtk_combo_box_set_active(GTK_COMBO_BOX(e),i);
 		gtk_container_add (GTK_CONTAINER (vb),e);
+
+		e=gtk_check_button_new_with_label("Stop");
+		gtk_widget_set_name(e,100);
+		gtk_container_add (GTK_CONTAINER (vb),e);
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(e),SR(bd,2) & 1 !=0);
 	}
 
 	e=gtk_combo_box_text_new();
 	gtk_widget_set_name(e,4);
 	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(e),NULL,"Register");
 	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(e),NULL,"Value");
+
 	i=bd&0x40000000 ? 1 : 0;
 	gtk_combo_box_set_active(GTK_COMBO_BOX(e),i);
 	gtk_container_add (GTK_CONTAINER (vb),e);
-
-	e=gtk_label_new("Counter");
-	gtk_container_add (GTK_CONTAINER (vb),e);
-
-	e=gtk_entry_new();
-	gtk_widget_set_name(e,100);//first value
 
 	if(ISMEMORYBREAKPOINT(*bp)){
 		i= SR(bd&0xf8,3);
@@ -2210,6 +2585,10 @@ int DebugWindow::ChangeBreakpointBox(char *title,u64 *bp,u32 flags){
 		i=SR(bd,3)&7;
 	}
 	else{
+		e=gtk_label_new("Counter");
+		gtk_container_add (GTK_CONTAINER (vb),e);
+		e=gtk_entry_new();
+		gtk_widget_set_name(e,100);//first value
 		if(bd&0x8000){//complex
 			i = SR(bd,3) & 0x1f;
 			sprintf(c,"r%d",i);
@@ -2219,11 +2598,10 @@ int DebugWindow::ChangeBreakpointBox(char *title,u64 *bp,u32 flags){
 			sprintf(c,"%x",i);
 		}
 		i=bd&7;
+		b=gtk_entry_get_buffer(GTK_ENTRY(e));
+		gtk_entry_buffer_set_text(b,c,-1);
+		gtk_container_add (GTK_CONTAINER (vb),e);
 	}
-	b=gtk_entry_get_buffer(GTK_ENTRY(e));
-	gtk_entry_buffer_set_text(b,c,-1);
-
-	gtk_container_add (GTK_CONTAINER (vb),e);
 
 	e=gtk_combo_box_text_new();
 	gtk_widget_set_name(e,11);
@@ -2241,7 +2619,9 @@ int DebugWindow::ChangeBreakpointBox(char *title,u64 *bp,u32 flags){
 	e=gtk_entry_new();
 	gtk_widget_set_name(e,200);//value
 	b=gtk_entry_get_buffer(GTK_ENTRY(e));
+
 	if(ISMEMORYBREAKPOINT(*bp)){
+
 	}
 	else{
 		if(bd&0x8000){//no counter
@@ -2264,31 +2644,46 @@ int DebugWindow::ChangeBreakpointBox(char *title,u64 *bp,u32 flags){
 	if(gtk_dialog_run(GTK_DIALOG (dialog))!=GTK_RESPONSE_ACCEPT)
 		goto A;
 
+	e = GetDlgItem(dialog,RES(10));//enabled
+	if(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(e)))
+		bkv |= 0x8000000000000000ULL;
+	else
+		bkv &= ~0x8000000000000000ULL;
 	e = GetDlgItem(dialog,RES(4));
 	i=gtk_combo_box_get_active(GTK_COMBO_BOX(e));
 	bkv= SL((u64)i,62)|(bkv & 0xBFFFFFFFFFFFFFFFULL);
 
 	if(ISMEMORYBREAKPOINT(bkv)){
-		e = GetDlgItem(dialog,RES(3));
-		i=gtk_combo_box_get_active(GTK_COMBO_BOX(e));
-		bkv = SL((u64)i,60)|(bkv & 0xCFFFFFFFFFFFFFFF);
+		e = GetDlgItem(dialog,RES(100));//stop
+		if(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(e)))
+			bkv |= 0x400000000ULL;
+		else
+			bkv &= ~0x400000000ULL;
 
-		e = GetDlgItem(dialog,RES(5));
+		e = GetDlgItem(dialog,RES(3));//access
 		i=gtk_combo_box_get_active(GTK_COMBO_BOX(e));
-		bkv = SL((u64)i,38)|(bkv & 0xFFFFFF3FFFFFFFFF);
+		bkv = SL((u64)i,60)|(bkv & 0xCFFFFFFFFFFFFFFFULL);//0x3
 
-		e = GetDlgItem(dialog,RES(4));
+		e = GetDlgItem(dialog,RES(5));//size
 		i=gtk_combo_box_get_active(GTK_COMBO_BOX(e));
+		bkv = SL((u64)i,38)|(bkv & 0xFFFFFF3FFFFFFFFF);//
 
 		e = GetDlgItem(dialog,RES(200));
 		b=gtk_entry_get_buffer(GTK_ENTRY(e));
 		p = (char *)gtk_entry_buffer_get_text(b);
 		sscanf(p,"%x",&i);
+	//	bkv = (bkv & ~0x7FFF7f0000000000ULL)|SL((u64)(i&0x7f),40);//800080FF
+
+		e = GetDlgItem(dialog,RES(4));//register/value
+		if(gtk_combo_box_get_active(GTK_COMBO_BOX(e))){
+	//		bkv |= 0x4000000000000000ULL;
+	//		bkv |= SL((u64)SR(i,7) & 0x3fff,48);
+		}
 
 		e = GetDlgItem(dialog,RES(11));//condition
 		i=gtk_combo_box_get_active(GTK_COMBO_BOX(e));
 		//i=7;
-		bkv = (bkv & ~0x3800000000ULL)|SL((u64)i,35);
+		bkv = (bkv & ~0x1800000000ULL) | SL((u64)i,35);
 	}
 	else{
 		e = GetDlgItem(dialog,RES(3));
@@ -2307,15 +2702,15 @@ int DebugWindow::ChangeBreakpointBox(char *title,u64 *bp,u32 flags){
 			b=gtk_entry_get_buffer(GTK_ENTRY(e));
 			p = (char *)gtk_entry_buffer_get_text(b);
 			sscanf(p,"%x",&i);
-			bkv = (bkv & ~0x40007f0000000000ULL)|SL((u64)(i&0x7f),40);;
+			bkv = (bkv & ~0x7FFF7f0000000000ULL)|SL((u64)(i&0x7f),40);
 			e = GetDlgItem(dialog,RES(4));
 			if(gtk_combo_box_get_active(GTK_COMBO_BOX(e))){
 				bkv |= 0x4000000000000000ULL;
+				bkv |= SL((u64)SR(i,7)&0x3fff,48);
 			}
-
 			e = GetDlgItem(dialog,RES(11));//condition
 			i=gtk_combo_box_get_active(GTK_COMBO_BOX(e));
-			bkv= SL((u64)i,32)|(bkv & ~0x700000000ULL);
+			bkv= SL((u64)i,32)|(bkv & ~0x300000000ULL);
 		}
 		else{
 			e = GetDlgItem(dialog,RES(200));//value
@@ -2390,7 +2785,7 @@ A:
 }
 
 int DebugWindow::OnMemoryUpdate(u32 adr,u32 flags,ICore *core){
-	u32 d[4];
+	u32 d[5];
 
 #ifdef _DEBUG
 	if(!BT(_status,S_DEBUG))
@@ -2408,14 +2803,15 @@ int DebugWindow::OnMemoryUpdate(u32 adr,u32 flags,ICore *core){
 	//cpu->Query(ICORE_QUERY_PC,&d[2]);
 	putf(0,"Breakpoint reached at location %x %x at PC:%x CPU:%d\n",adr,flags,d[2],(int)d[3]);
 	//beep(600,80,128);
-	DebugMode(1,0,d[3]);
-	ShowToastMessage((char *)"Memory breakpoint reached.stopped");
+	if(d[4]){
+		DebugMode(1,0,d[3]);
+		ShowToastMessage((char *)"Memory breakpoint reached. Stopped");
+	}
 A:
 	if(!BT(_status,S_PAUSE))
 		goto B;
-	_lastAccessAddress=adr;
-	cpu->Query(ICORE_QUERY_SET_LAST_ADDRESS,d);
-	//printf("%x %x\n",adr,flags);
+	_memPages._lastAccessAddress=adr;
+	//printf("mu %x %x\n",adr,flags);
 B:
 #endif
 	return 0;
@@ -2433,21 +2829,20 @@ int DebugWindow::SearchWord(char *c){
 	if(!c[0])
 		return -2;
 	i=strlen(c);
-	d[0]=_editAddress;
+	d[0]=_memPages._editAddress;
 	*((u64 *)&d[1])=(u64)&d[3];
 	cpu->Query(ICORE_QUERY_ADDRESS_INFO,d);
 
 	*((u64 *)dd)=(u64)c;
-	dd[2]=_editAddress;
-	dd[3]=d[4]-(_editAddress-d[3]);
+	dd[2]=_memPages._editAddress;
+	dd[3]=d[4]-(_memPages._editAddress-d[3]);
 
 	//printf("lino %x %x\n",dd[2],dd[3]);
 	if(!cpu->Query(ICORE_QUERY_MEMORY_FIND,dd)){
-		_editAddress=dd[2];
-		if(!cpu->Query(ICORE_QUERY_DBG_DUMP_ADDRESS,(void *)(u64)_editAddress)){
-			_editAddress+=i;
-			Update();
-		}
+		_memPages._editAddress=dd[2];
+		_memPages._dumpAddress=_memPages._editAddress;
+		_memPages._editAddress+=i;
+		Update();
 	}
 	if(c!=_searchWord){
 		if(!_searchWord || i != strlen(_searchWord)){
@@ -2506,7 +2901,7 @@ int DebugWindow::SaveNotes(char *fn){
 	int res=-1;
 #ifdef _DEBUG
 
-	char *pp,c[30];
+	char *pp;
 	FILE *fp;
 
 #ifdef __WIN32__
@@ -2644,21 +3039,533 @@ int DebugWindow::_updateToolbar(){
 
 int DebugWindow::OnPaint(u32 id,HWND w,HDC cr){
 	switch(id){
-		case IDC_DEBUG_DA1:{
-#ifdef __WIN32__
-#else
-		int width = gtk_widget_get_allocated_width (w);
-		int height = gtk_widget_get_allocated_height (w);
-
-		cairo_set_source_rgb(cr,0.0,0.0,0.0);
-		cairo_rectangle(cr,0,0,width,height);
-		cairo_fill (cr);
-#endif
-		}
+		case IDC_DEBUG_DA1:
+			UpdateLayersView(w,cr);
+		break;
+		case IDC_DEBUG_DA2:
+			UpdatePaletteView(w,cr);
+		break;
+		case IDC_DEBUG_DA3:
+			UpdateOAMView(w,cr);
 		break;
 		default:
 			printf("%s %d\n",__FUNCTION__,id);
 		break;
 	}
+	return 0;
+}
+
+int DebugWindow::UpdatePaletteView(HWND win,HDC cr){
+	u8 *data;
+	HBITMAP bit;
+	HDC ca;
+
+	data=NULL;
+	bit=NULL;
+#ifdef __WIN32__
+#else
+	int w = gtk_widget_get_allocated_width (win);
+	int h = gtk_widget_get_allocated_height (win);
+#endif
+	if(!cpu || cpu->Query(ICORE_QUERY_DBG_PALETTE,&data)){
+		data=NULL;
+	}
+#ifdef __WIN32__
+#else
+	if(!data){
+		cairo_set_source_rgb(cr,0.0,0.0,0.0);
+		cairo_rectangle(cr,0,0,w,h);
+		cairo_fill (cr);
+	}
+	else{
+		cairo_surface_t *surface = cairo_image_surface_create (CAIRO_FORMAT_ARGB32, w, h);
+		ca = cairo_create (surface);
+
+		cairo_set_source_rgb(ca,0.0,0.0,0.0);
+		cairo_rectangle(ca,0,0,w,h);
+		cairo_fill (ca);
+
+		int rw,rh,y,xs;
+
+		rw= SR(w,4);
+		rh=rw;
+		y = h - (((((u32 *)data)[1] * rw) / w) * rh);
+		if(y<0)
+			y =0;
+		xs = SR(w-(16*rw),1);
+
+		for(int i=0,x=xs;i<((u32 *)data)[1];i++){
+			u32 v = ((u32 *)data)[0x10+i];
+
+			cairo_set_source_rgb(ca,((u8)SR(v,16))/255.0f,((u8)SR(v,8)) / 255.0f,((u8)v) / 255.0f);
+			cairo_rectangle(ca,x,y,rw,rh);
+			cairo_fill (ca);
+			x+=rw;
+			if(x>w-rw){
+				y+=rh;
+				if(y>h-rh)
+					break;
+				x=xs;
+			}
+		}
+		bit=gdk_pixbuf_get_from_surface(surface,0,0,w,h);
+
+		cairo_surface_destroy (surface);
+		cairo_destroy (ca);
+		gdk_cairo_set_source_pixbuf (cr, bit, 0,0);
+		cairo_paint(cr);
+		cairo_fill (cr);
+	}
+#endif
+	if(data)
+		free(data);
+	if(bit)
+		DeleteObject(bit);
+	return 0;
+}
+
+int DebugWindow::UpdateLayersView(HWND win,HDC cr){
+	u8 *data;
+	HBITMAP bit;
+	HDC ca;
+	u32 params[10];
+
+	data=NULL;
+	bit=NULL;
+#ifdef __WIN32__
+#else
+	int w = gtk_widget_get_allocated_width (win);
+	int h = gtk_widget_get_allocated_height (win);
+
+	data = (u8 *)gtk_combo_box_get_active_id(GTK_COMBO_BOX(GetDlgItem(_window,RES(IDC_DEBUG_LAYERS_CB))));
+	params[0] = data ? stoi((char *)data) : 0;
+	params[1] = w;
+	params[2] = h;
+	HWND ww=GetDlgItem(_window,RES(CONCAT(IDC_DEBUG_DA1,0)));
+	params[3]=gtk_range_get_value(GTK_RANGE(ww));
+#endif
+	{
+		data=(u8 *)&params;
+		if(!cpu || cpu->Query(ICORE_QUERY_DBG_LAYER,&data)){
+			data=NULL;
+		}
+	}
+#ifdef __WIN32__
+#else
+	if(!data){
+		cairo_set_source_rgb(cr,0.0,0.0,0.0);
+		cairo_rectangle(cr,0,0,w,h);
+	}
+	else{
+		s32 rw,rh,wo,ho,xp,yp;
+		u16 *p;
+
+		cairo_surface_t *surface = cairo_image_surface_create (CAIRO_FORMAT_ARGB32, w, h);
+		ca = cairo_create (surface);
+
+		cairo_set_source_rgb(ca,0.0,0.0,0.0);
+		cairo_rectangle(ca,0,0,w,h);
+		cairo_fill (ca);
+
+		rw=rh=NFXD(1);
+
+		wo=LOWORD(((u32 *)data)[1]);
+		ho=HIWORD(((u32 *)data)[1]);
+		if(ho < h || wo < w){
+//			s32 n = h < w ? h : w;
+
+			//h=w=n;
+		}
+	//	rh=h*4096/ho;
+		//rw=w*4096/wo;
+		xp=SR(NFXD(w)-wo*rw,1);
+		yp=SR(NFXD(h)-ho*rh,1);
+		xp=yp=0;
+		p=(u16 *)&((u32 *)data)[10];
+
+		for(int y=0;y<ho;y++){
+			for(int x=0;x<wo;x++){
+
+				u32 v=p[x+y*wo];
+				cairo_set_source_rgb(ca,(v & 31)/31.0f,(SR(v,5)&31) / 31.0f,(SR(v,10)&31) / 31.0f);
+
+				cairo_rectangle(ca,DFXD(xp+x*rh),DFXD(yp+y*rw),DFXD(rw),DFXD(rh));
+				cairo_fill (ca);
+			}
+		}
+
+		cairo_set_source_rgb(ca,1,1,1);
+		cairo_set_line_width(ca,0.5);
+	//	cairo_set_dash(ca,
+	/*	for(int x=0;x<wo;x+=LOWORD(((u32 *)data)[4])){
+			cairo_move_to(ca,xp+x,yp+0);
+			cairo_line_to(ca,xp+x,yp+ho);
+		}
+		for(int y=0;y<ho;y+=HIWORD(((u32 *)data)[4])){
+			cairo_move_to(ca,xp,yp+y);
+			cairo_line_to(ca,xp+wo,yp+y);
+		}*/
+		cairo_stroke (ca);
+
+		bit=gdk_pixbuf_get_from_surface(surface,0,0,w,h);
+
+		cairo_surface_destroy (surface);
+		cairo_destroy (ca);
+		gdk_cairo_set_source_pixbuf (cr, bit, 0,0);
+		cairo_paint(cr);
+	}
+	cairo_fill (cr);
+#endif
+	if(data) free(data);
+	if(bit) DeleteObject(bit);
+	return 0;
+}
+
+int DebugWindow::UpdateOAMView(HWND win,HDC cr){
+	u8 *data;
+	HBITMAP bit;
+	HDC ca;
+	int idx;
+
+	data=NULL;
+	bit=NULL;
+#ifdef __WIN32__
+#else
+	int w = gtk_widget_get_allocated_width (win);
+	int h = gtk_widget_get_allocated_height (win);
+
+	idx =gtk_combo_box_get_active(GTK_COMBO_BOX(GetDlgItem(_window,RES(IDC_DEBUG_OAM_CB))));
+#endif
+	{
+		data=(u8 *)&idx;
+		if(!cpu || cpu->Query(ICORE_QUERY_DBG_OAM,&data)){
+			data=NULL;
+		}
+	}
+#ifdef __WIN32__
+#else
+	if(!data){
+		cairo_set_source_rgb(cr,0.0,0.0,0.0);
+		cairo_rectangle(cr,0,0,w,h);
+	}
+	else{
+		int rw,rh,wo,ho,xp,yp;
+		void *p;
+		cairo_surface_t *surface = cairo_image_surface_create (CAIRO_FORMAT_ARGB32, w, h);
+		ca = cairo_create (surface);
+
+		cairo_set_source_rgb(ca,0.0,0.0,0.0);
+		cairo_rectangle(ca,0,0,w,h);
+		cairo_fill (ca);
+
+		rw=rh=2;
+		wo=LOWORD(((u32 *)data)[0]);
+		ho=HIWORD(((u32 *)data)[0]);
+		xp=SR(w-wo*rw,1);
+		yp=SR(h-ho*rh,1);
+		p=(void *)&data[((u32 *)data)[1]];
+
+		for(int y=0;y<ho;y++){
+			for(int x=0;x<wo;x++){
+				u32  v;
+				float r,g,b;
+
+				if(((u32 *)data)[2]){
+					v=((u32 *)p)[x+y*wo];
+					b=(u8)SR(v,16) / 255.0f;
+					g=(u8)SR(v,8) / 255.0f;
+					r=(u8)v / 255.0f;
+				//	if(SR(v,24) != 255) r=g=b=0;
+				}
+				else{
+					v=((u16 *)p)[x+y*wo];
+					b=(v & 31) /31.0f;
+					g=(SR(v,5)&31) / 31.0f;
+					r=(SR(v,10)&31) /31.0f;
+				}
+				cairo_set_source_rgb(ca,r,g,b);
+				cairo_rectangle(ca,xp+x*rh,yp+y*rw,rw,rh);
+				cairo_fill (ca);
+			}
+		}
+
+		bit=gdk_pixbuf_get_from_surface(surface,0,0,w,h);
+
+		cairo_surface_destroy (surface);
+		cairo_destroy (ca);
+		gdk_cairo_set_source_pixbuf (cr, bit, 0,0);
+		cairo_paint(cr);
+	}
+	cairo_fill (cr);
+#endif
+	if(data) free(data);
+	if(bit) DeleteObject(bit);
+	return 0;
+}
+
+DebugWindow::__memView::__memView(){
+	iCurrentPage=-1;
+	_view=NULL;
+	_sb=NULL;
+	_iPage=(u32)-1;
+	_reset();
+}
+
+DebugWindow::__memView::~__memView(){
+}
+
+int DebugWindow::__memView::_reset(){
+	size=sizeof(DEBUGGERDUMPINFO);
+	_lastAccessAddress=-1;
+	_dumpLength=0x1000;
+	_dumpLines=3;
+	iCurrentPage=-1;
+#ifdef __WIN32__
+#else
+	if(_view && GTK_IS_WIDGET(_view)){
+			GtkAllocation al;
+		GtkTextAttributes *p;
+		PangoContext *context;
+		PangoFontMetrics *font_metrics;
+
+		p=gtk_text_view_get_default_attributes(GTK_TEXT_VIEW(_view));
+		gtk_widget_get_allocation(GTK_WIDGET(_view),&al);
+		context = gtk_widget_get_pango_context(_view);
+		font_metrics = pango_context_get_metrics(context,p->font,NULL);
+		_charSz[1]=ceil((pango_font_metrics_get_descent(font_metrics) + pango_font_metrics_get_ascent(font_metrics)) / (float)PANGO_SCALE) +1;
+		_charSz[0]=ceil(pango_font_metrics_get_approximate_digit_width(font_metrics) / (float)PANGO_SCALE) +1;
+		_dumpLines=al.height/_charSz[1];
+	}
+#endif
+	_switchPage(0);
+	return 0;
+}
+
+int DebugWindow::__memView::_addPage(HWND win,u32 attr,HWND *wr,int *ir){
+	HWND w,e;
+	char c[40];
+	int i;
+	struct __mempage p;
+#ifdef __WIN32__
+#else
+	e=gtk_frame_new(0);
+	g_object_set_data(G_OBJECT(e),"type",(gpointer)(u64)2);
+	g_object_set_data(G_OBJECT(e),"index",(gpointer)(u64)_items.size());
+	gtk_widget_show_all(e);
+	if(win){
+		sprintf(c,"Memory %u",(u32)_items.size());
+		w = gtk_label_new (c);
+		i=gtk_notebook_insert_page(GTK_NOTEBOOK (win), e, w,_items.size()+1);
+	}
+#endif
+	if(wr) *wr=e;
+	if(ir) *ir=i;
+	p._uEnd=KB(512);
+	p._win=e;
+	p._uMode=_dumpMode;
+	_items.push_back(p);
+	return  0;
+}
+
+int DebugWindow::__memView::_connect(u32 id,...){
+	va_list  arg;
+
+	va_start(arg,id);
+
+	_id=id;
+	_box=va_arg(arg,HWND);;
+	_view=va_arg(arg,HWND);
+	_sb=va_arg(arg,HWND);
+	_xb=va_arg(arg,HWND);
+	_mb=va_arg(arg,HWND);
+#ifdef __WIN32__
+#else
+	if(_view){
+		GtkAllocation al;
+		GtkTextAttributes *p;
+		PangoContext *context;
+		PangoFontMetrics *font_metrics;
+
+		p=gtk_text_view_get_default_attributes(GTK_TEXT_VIEW(_view));
+		gtk_widget_get_allocation(GTK_WIDGET(_view),&al);
+		context = gtk_widget_get_pango_context(_view);
+		font_metrics = pango_context_get_metrics(context,p->font,NULL);
+		_charSz[1]=ceil((pango_font_metrics_get_descent(font_metrics) + pango_font_metrics_get_ascent(font_metrics)) / (float)PANGO_SCALE) +1;
+		_charSz[0]=ceil(pango_font_metrics_get_approximate_digit_width(font_metrics) / (float)PANGO_SCALE) +1;
+		_dumpLines=al.height/_charSz[1];
+	}
+#endif
+	va_end(arg);
+
+	return 0;
+}
+
+int DebugWindow::__memView::_delBookmark(u32 a){
+	if(iCurrentPage == -1 || iCurrentPage >= _items.size())
+		return -1;
+	if(a==-1)
+		_items[iCurrentPage]._bookmark.clear();
+	else{
+		if(a >= _items[iCurrentPage]._bookmark.size()) return -2;
+		_items[iCurrentPage]._bookmark.erase(_items[iCurrentPage]._bookmark.begin()+a);
+	}
+	return _update_bookmarks_menu();
+}
+
+int DebugWindow::__memView::_addBookmark(u64 a){
+	if(iCurrentPage == -1 || iCurrentPage >= _items.size())
+		return -1;
+	for(auto it=_items[iCurrentPage]._bookmark.begin();it !=_items[iCurrentPage]._bookmark.end();it++){
+		if(a==(*it))  return -2;
+	}
+	_items[iCurrentPage]._bookmark.push_back(a);
+	_update_bookmarks_menu();
+	return 0;
+}
+
+int DebugWindow::__memView::_setPageAddress(u64 a){
+	int res;
+	u32 d[10];
+
+	res=-1;
+	_dumpAddress=SL(SR(a,4),4);
+	if(iCurrentPage == -1 || iCurrentPage >= _items.size())
+		goto W;
+	d[0]=a;
+	*((u64 *)&d[1])=(u64)&d[3];
+	if(!cpu->Query(ICORE_QUERY_ADDRESS_INFO,d)){
+		_items[iCurrentPage]._uStart=d[3];
+		_items[iCurrentPage]._uEnd=d[3]+d[4];
+		_items[iCurrentPage]._uAdr=_dumpAddress;
+		_adjustViewport();
+	}
+	res=0;
+W:
+	return res;
+}
+
+int DebugWindow::__memView::_getCurrentMode(u32 *r){
+	if(!r) return -1;
+	*r=0;
+	if(iCurrentPage == -1 || iCurrentPage >= _items.size()) return 0;
+	*r=_items[iCurrentPage]._uMode;
+	return  0;
+}
+
+int DebugWindow::__memView::_setPageDumpMode(u32 a){
+	_dumpMode=a;
+	if(iCurrentPage == -1 || iCurrentPage >= _items.size())
+		return 0;
+	_items[iCurrentPage]._uMode=_dumpMode;
+	return 0;
+}
+
+int DebugWindow::__memView::_switchPage(u32 i,HWND nbw){
+	if(i>=_items.size())
+		return -1;
+	if(i==iCurrentPage)
+		return 0;
+	if(iCurrentPage!=-1){
+		_items[iCurrentPage]._uAdr=_dumpAddress;
+		_items[iCurrentPage]._uMode=_dumpMode;
+	}
+	iCurrentPage=i;
+	_dumpAddress=_items[i]._uAdr;
+	_dumpMode=_items[i]._uMode;
+#ifdef __WIN32__
+#else
+	if(nbw && _box){
+		//printf("type %x\n",(u32)(u64)g_object_get_data(G_OBJECT(nbw),"type"));
+		if((u32)(u64)g_object_get_data(G_OBJECT(nbw),"type") == 2){
+			HWND a;
+
+			g_object_ref(_box);
+			if((a=gtk_widget_get_parent(_box)))
+				gtk_container_remove(GTK_CONTAINER(a),_box);
+			gtk_container_add (GTK_CONTAINER (nbw),_box);
+			g_object_unref(_box);
+			if(_xb)
+				gtk_widget_set_sensitive(_xb,i> 0);
+		}
+	}
+#endif
+	_adjustViewport();
+	_update_bookmarks_menu();
+	return  0;
+}
+
+int DebugWindow::__memView::_adjustViewport(){
+#ifdef __WIN32__
+#else
+	if(!_sb || !GTK_IS_WIDGET(_sb)) return -1;
+	GtkAdjustment *d=gtk_range_get_adjustment(GTK_RANGE(_sb));
+	double v = _items[iCurrentPage]._uAdr-_items[iCurrentPage]._uStart;
+	gtk_adjustment_configure(GTK_ADJUSTMENT(d),v,0,_items[iCurrentPage]._uEnd-_items[iCurrentPage]._uStart,16,16,16*_dumpLines);
+#endif
+	return 0;
+}
+
+int DebugWindow::__memView::_close(int i){
+	if(i==-1)
+		i=iCurrentPage;
+	if(i >=_items.size() || i < 0)
+		return -1;
+	if(_box)
+		_switchPage(0,_items[0]._win);
+	_items.erase(_items.begin()+i);
+	return 0;
+}
+
+int DebugWindow::__memView::_onScroll(u32 id,HWND w,GtkScrollType t){
+	double d[10];
+#ifdef __WIN32__
+#else
+	GtkAdjustment *control;
+
+
+	if((control = gtk_range_get_adjustment(GTK_RANGE(w))) == NULL)
+		return -1;
+	g_object_get((gpointer)control,"lower",&d[0],"upper",&d[1],"value",&d[2],"page-increment",&d[3],"step-increment",&d[4],"page-size",&d[5],NULL);
+#endif
+	_dumpAddress=iCurrentPage != -1 ? _items[iCurrentPage]._uStart:0;
+	_dumpAddress +=  floor(d[2]/16.0f) *16;
+	return 0;;
+}
+
+int DebugWindow::__memView::_update_bookmarks_menu(){
+	HMENU m;
+	HWND mi;
+	u32 i;
+
+	if(!_mb) return -1;
+#ifdef __WIN32__
+#else
+	if(!(m=(HMENU)gtk_menu_button_get_popup(GTK_MENU_BUTTON(_mb)))){
+		m=(HMENU)gtk_menu_new();
+	}
+	GList *children = gtk_container_get_children(GTK_CONTAINER(m));
+	for(;children;children = g_list_next(children))
+		gtk_container_remove(GTK_CONTAINER(m),GTK_WIDGET(children->data));
+	i=0x440;
+	for(auto it=_items[iCurrentPage]._bookmark.begin();it !=_items[iCurrentPage]._bookmark.end();it++){
+		char c[20];
+
+		sprintf(c,"%08X",(u32)(*it));
+		mi=gtk_menu_item_new_with_label(c);
+		gtk_menu_shell_append(GTK_MENU_SHELL(m),mi);
+		gtk_widget_set_name(mi,MAKELONG(_id,i++));
+		g_signal_connect (mi, "activate", G_CALLBACK (::on_menuitem_select), NULL);
+	}
+	mi=gtk_menu_item_new_with_label("Add...");
+	gtk_widget_set_name(mi,MAKELONG(_id,0x400));
+	g_signal_connect (mi, "activate", G_CALLBACK (::on_menuitem_select), NULL);
+	gtk_menu_shell_append(GTK_MENU_SHELL(m),mi);
+	mi=gtk_menu_item_new_with_label("Delete all");
+	gtk_widget_set_name(mi,MAKELONG(_id,0x401));
+	g_signal_connect (mi, "activate", G_CALLBACK (::on_menuitem_select), NULL);
+	gtk_menu_shell_append(GTK_MENU_SHELL(m),mi);
+	gtk_widget_show_all(GTK_WIDGET(m));
+	gtk_menu_button_set_popup(GTK_MENU_BUTTON(_mb),GTK_WIDGET(m));
+#endif
 	return 0;
 }

@@ -19,28 +19,30 @@ CF+=-fdevirtualize-speculatively -fexpensive-optimizations
 #CFLAGS+=-fno-omit-frame-pointer
 #CFLAGS+=-fno-move-loop-stores
 #CF+=-fno-omit-frame-pointer
-#CF=-O3 -fno-omit-frame-pointer
-CF+=-O0 -fpermissive
-CF=-g2 -fpermissive -DLOGLEVEL=9 -D_DEVELOP
-CF+=-D_DEBUG -Wno-deprecated-declarations
+CF=-O2 -fno-omit-frame-pointer
+CF+= -fpermissive
+#CF=-ggdb -fpermissive -DLOGLEVEL=9 -Wunused
+CF+=-D_DEBUG -Wno-deprecated-declarations -std=c++11
 
 GTK_LIBS=$(shell $(PKGCONFIG) --libs gtk+-3.0 gmodule-2.0)
-LIBS=-lm $(GTK_LIBS) -lpthread -lasound
+LIBS=-lm $(GTK_LIBS) -lpthread -lasound -lGL
 
 SUBDIR=cpu gfx audio machine res device
-SOURCES=$(wildcard *.cpp $(foreach fd, $(SUBDIR), $(fd)/*.cpp))
-SOURCES+=$(wildcard *.glade $(foreach fd, $(SUBDIR), $(fd)/*.glade))
-SOURCES+=$(wildcard *.bin $(foreach fd, $(SUBDIR), $(fd)/*.bin))
-SOURCES+=$(wildcard *.xpm $(foreach fd, $(SUBDIR), $(fd)/*.xpm))
+CPPSRC=$(shell find $(foreach fd, $(SUBDIR), $(fd)) -regex '.*\.c[pp]*')
+SOURCES=$(wildcard *.cpp $(CPPSRC))
 OBJDIR=./obj
 CPPOBJ=$(patsubst %.cpp,$(OBJDIR)/%.o, $(SOURCES))
-OBJ=$(patsubst %.xpm,$(OBJDIR)/%.o, $(patsubst %.xpm,$(OBJDIR)/%.o, $(patsubst %.glade,$(OBJDIR)/%.o, $(CPPOBJ))))
-INCLUDE_DIR+=$(patsubst %,-I%, $(SUBDIR))
+BINS=xpm bin glade
+OBJBIN=$(wildcard $(foreach fd, $(BINS), *.$(fd)))
+OBJ=$(foreach fd, $(BINS), $(patsubst %.$(fd), $(OBJDIR)/%.o, $(filter %.$(fd), $(OBJBIN))))
+OBJ+=$(CPPOBJ)
+
+INCLUDE_DIR+=$(patsubst %,-I%, $(shell find $(foreach fd, $(SUBDIR), $(fd)) -type d))
 
 #OBJ=$(addprefix $(OBJDIR)/, $(SOURCES:glade=o))
 
-DEPS=$(wildcard *.h $(foreach fd, $(SUBDIR), $(fd)/*.h))
-DEPS+=$(wildcard *.inc $(foreach fd, $(SUBDIR), $(fd)/*.inc))
+DEPS=$(wildcard *.h $(shell find $(foreach fd, $(SUBDIR), $(fd)) -regex '.*\.[hinc]+'))
+#DEPS+=$(wildcard *.inc $(foreach fd, $(SUBDIR), $(fd)/*.inc))
 #DEPS+=$(wildcard *.inc $(foreach fd, $(SUBDIR), $(fd)/*.inc))
 CFLAGS= $(shell $(PKGCONFIG) --cflags gtk+-3.0) $(INCLUDE_DIR) $(LIB_DIR) $(CF)
 
@@ -52,6 +54,7 @@ $(OBJDIR)/%.o: %.c* $(DEPS)
 define BINARY =
 	@echo "Building binary "$(2)
 	@mkdir -p $(3)
+	@echo -n "\0\0" >> $(1)
 	@objcopy -B i386 -I binary -O elf64-x86-64 $(1) $(2)
 endef
 
@@ -59,6 +62,9 @@ $(OBJDIR)/%.o: %.glade
 	$(call BINARY,$<,$@,$(@D))
 
 $(OBJDIR)/%.o: %.xpm
+	$(call BINARY,$<,$@,$(@D))
+
+$(OBJDIR)/%.o: %.bin
 	$(call BINARY,$<,$@,$(@D))
 
 $(TARGET): $(OBJ)

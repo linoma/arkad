@@ -26,25 +26,24 @@
 }
 
 #define EXECTIMEROBJLOOP(ret,a,b)\
-if(_tobj._edge && (_tobj._cyc+=ret) >= _tobj._edge){\
+if(_tobj._edge && (_tobj._cyc += ret) >= _tobj._edge){\
 	LPCPUTIMEROBJ p=_tobj._first;\
 	while(p){\
 		LPCPUTIMEROBJ pp = p->next;\
 		if((p->cyc+=_tobj._cyc) >= p->elapsed){\
-			int i = p->obj->Run(b,p->cyc);\
-			p->cyc%=p->elapsed;\
-			if(i<0)\
+			int i__ = p->obj->Run(b,p->cyc,p);\
+			p->cyc %= p->elapsed;\
+			if(i__> 0){a;}\
+			if(i__ == -1 || BVT(p->type,0))\
 				DelTimerObj(p->obj);\
-			else if(i){\
-				a;\
-			}\
+			else if(i__<0){u32 i___=i__&~0x80000000;p->elapsed=i___;if(_tobj._edge == 0 || i___ <_tobj._edge) _tobj._edge=i___;}\
 		}\
 		p=pp;\
 	}\
-	_tobj._cyc=0;\
+	_tobj._cyc-=_tobj._edge;\
 }
 
-#define ISMEMORYBREAKPOINT(a) ((SR(a,32) & 0x8007) == 0x8007)
+#define ISMEMORYBREAKPOINT(a) ((SR(a,32) & 0x8003) == 0x8003)
 #define BK_VALUE(a,b,c) \
 if(ISMEMORYBREAKPOINT(a)){\
 	b= SR(a&0xf8,3);\
@@ -65,9 +64,9 @@ else{\
 	else b=(SR(u64)a,32) & 7;\
 
 
-#define ISMEMORYBREAKPOINT(a) ((SR(a,32) & 0x8007) == 0x8007)
+#define ISMEMORYBREAKPOINT(a) ((SR(a,32) & 0x8003) == 0x8003)
 #define ISBREAKPOINTENABLED(a) ((a & 0x8000000000000000))
-#define RESETBREAKPOINTCOUNTER(a) (a & 0xFFFF0000FFFFFFFFULL)
+#define RESETBREAKPOINTCOUNTER(a) (a & 0xFFFF8000FFFFFFFF)
 #define ISBREAKPOINTCOUNTER(a) ((a&0x800000000000)==0)
 
 #ifdef _DEBUG
@@ -85,7 +84,7 @@ else{\
 					rd |= SR(vv&0x3fff0000,9);\
 				else\
 					rd=_regs[rd];\
-				switch(vv&0x7){\
+				switch(vv&0x3){\
 					case 0:\
 						if(rd==rs)\
 							continue;\
@@ -105,7 +104,7 @@ else{\
 				int i=(int)SR(vv,16) & 0x7fff;\
 				if(i && i != ret)\
 					continue;\
-				*it=RESETBREAKPOINTCOUNTER(v);\
+				if(i) *it=RESETBREAKPOINTCOUNTER(v);\
 			}
 #else
 	#define CHECKBREAKPOINT(it)
@@ -116,8 +115,8 @@ else{\
 if(BT(a,S_DEBUG) && !BT(a,S_DEBUG_NEXT)){\
 	for (auto it = _bk.begin();it != _bk.end(); ++it){\
 		u64 v=(u64)*it;\
-		if((b)v != _pc)\
-			continue;\
+		if(_pc < (b)v) break;\
+		if((b)v != _pc)	continue;\
 		CHECKBREAKPOINT(it);\
 		return -2;\
 	}\
@@ -126,7 +125,9 @@ if(BT(a,S_DEBUG) && !BT(a,S_DEBUG_NEXT)){\
 
 #define __S(a,...)		sprintf(cc,STR(%s) STR(\x20) STR(a),## __VA_ARGS__);
 #define __F(a,...) 		printf(STR(%08X %04X %s) STR(\x20) STR(a) STR(\n),_pc,_opcode,## __VA_ARGS__);
-#define D_CYCLES(a,b) 	(__cycles > (a) ? __cycles-(a) : ((b)-(a))+__cycles)
+#define D_CYCLES(a,b,c) 	(c > (a) ? c-(a) : ((b)-(a))+c)
+#define SPU_CYCLES(a,b,c,d)	( SR(D_CYCLES(a,b,d) * (SL(c,12)/b),12))
+
 
 class CCore : public ICore{
 public:
@@ -135,7 +136,7 @@ public:
 	virtual int Reset();
 	virtual int Destroy();
 	virtual int _exec(u32)=0;
-	int AddTimerObj(ICpuTimerObj *obj,u32 _elapsed=0,char *n=0);
+	int AddTimerObj(ICpuTimerObj *obj,u32 _elapsed=0,void* param=NULL,u32 f=0);
 	int DelTimerObj(ICpuTimerObj *obj);
 	LPCPUTIMEROBJ GetTimerObj(ICpuTimerObj *obj);
 	char *_getFilename(char *p=NULL){return _filename;};
@@ -143,18 +144,20 @@ public:
 	virtual int Exec(u32);
 	virtual int Restart();
 	virtual int Stop();
-	virtual int _dumpMemory(char *p,u8 *mem,u32 adr,u32 sz=0x400);
+	virtual int _dumpMemory(char *p,u8 *mem,LPDEBUGGERDUMPINFO pdi=NULL,u32 sz=0);
 	virtual int _dumpRegisters(char *p);
 	virtual int _dumpCallstack(char *p);
 	I_INLINE u32 getTicks(){return _cycles;};
 	I_INLINE u32 getFrequency(){return _freq;};
 	I_INLINE u32 isStopped(){return _status & S_QUIT ? 1 : 0;};
 protected:
+	virtual int _dump(char **,LPDEBUGGERDUMPINFO);
 	virtual int SaveState(IStreamer *);
 	virtual int LoadState(IStreamer *);
 	int DestroyWaitableObject();
 	int ResetWaitableObject();
 	void ResetBreakpoint();
+	int AddBreakpoint(u64);
 	virtual int Disassemble(char *dest,u32 *padr){return 0;};
 
 	struct {
@@ -162,12 +165,14 @@ protected:
 		LPCPUTIMEROBJ _first;
 	} _tobj;
 
-	u32 _cycles,_pc,_dumpAddress,_dumpMode,_lastAccessAddress,_freq,_attributes;
+	u32 _cycles,_pc,_freq,_attributes;
 	CRITICAL_SECTION _cr;
 	std::vector<u32> _cstk;
 	std::vector<u64> _bk;
 	char *_filename;
 	CoreMACallback *_portfnc_write,*_portfnc_read;
+	CoreDecode *_opcodescb;
+	CoreDisassebler *_disopcodecb;
 	u8 *_mem,*_regs,_idx;
 	void *_machine;
 private:
@@ -183,6 +188,7 @@ public:
 	virtual int Close();
 	virtual int Seek(s64,u32);
 	virtual int Open(char *fn=NULL,u32 a=0);
+	virtual int Tell(u64 *r);
 protected:
    struct buffer{
        u8 *buf;

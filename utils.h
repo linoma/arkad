@@ -89,6 +89,7 @@ void Sleep(u32 dwMilliseconds);
 void EnableWindow(HWND hwnd,int enable);
 
 HWND GetDlgItem(HWND parent, const gchar* name);
+GtkWidget* GetDlgItem(GtkWidget* parent, u32 id);
 void EnterCriticalSection(CRITICAL_SECTION *cs);
 int TryEnterCriticalSection(CRITICAL_SECTION *cs);
 void LeaveCriticalSection(CRITICAL_SECTION *cs);
@@ -98,7 +99,7 @@ DWORD DispatchMessage(LPMSG lpMsg);
 
 u32 GetTempFileName(char * lpPathName,char * lpPrefixString,u32 uUnique,char *lpTempFileName);
 u32 GetTempPath(u32 nBufferLength,char *lpBuffer);
-
+HBITMAP CreateBitmap(int width,int height,u32 nPlanes,u32 nBits,const void *lpBits);
 
 #else
 int CGdiPlusLoadBitmapResource(LPCTSTR pName, LPCTSTR pType, HMODULE hInst,void **ret);
@@ -114,5 +115,6 @@ void gtk_widget_set_name(HWND w,u32 id);
 
 int beep(int freq,int duration,int vol);
 int SaveBitmap(char *fn,int width,int height,int nc,int bp,u8 *data);
+int SaveTextureAsTGA(u8 *image,u16 width,u16 height,u32 data);
 
 #endif

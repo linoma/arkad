@@ -8,18 +8,15 @@
 #include "resource.h"
 
 
-
-
 LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 3333               RCDATA         "res/arkad-logo.png"
-
-
 
 //
 // Bitmap resources
 //
 LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 IDB_TOOLBAR_BITMAP BITMAP         "res/toolbar.bmp"
+IDB_TOOLBAR_DISABLED_BITMAP BITMAP         "res/toolbard.bmp"
 
 
 
@@ -45,6 +42,10 @@ LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
             MENUITEM "x 1", 41001, CHECKED
             MENUITEM "x 2", 41002
             MENUITEM "x 3", 41003
+        }
+        POPUP "Machines"
+        {
+			MENUITEM SEPARATOR
         }
         MENUITEM "Settings", 5052
     }
@@ -79,7 +80,7 @@ FONT 8, "MS Shell Dlg", 400, 0, 1
 {
     CONTROL         "", 3333, WC_STATIC, SS_OWNERDRAW, 3, 7, 72, 40, WS_EX_LEFT
     LTEXT           "arKad", -1, 115, 10, 20, 8, SS_LEFT, WS_EX_LEFT
-    LTEXT           "1.1", -1, 121, 22, 11, 9, SS_LEFT, WS_EX_LEFT
+    LTEXT           "1.2", -1, 121, 22, 11, 9, SS_LEFT, WS_EX_LEFT
     LTEXT           "arKad Emulator", 0, 83, 30, 55, 9, SS_LEFT, WS_EX_LEFT
     DEFPUSHBUTTON   "OK", IDOK, 91, 70, 50, 14, WS_GROUP, WS_EX_LEFT
     CONTROL         "(c) Linoma 2022/2023", 0, WC_STATIC, NOT WS_GROUP | SS_LEFTNOWORDWRAP | SS_SUNKEN, 61, 44, 74, 10, WS_EX_RTLREADING
@@ -112,8 +113,8 @@ STRINGTABLE
 //
 LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 VS_VERSION_INFO VERSIONINFO
-    FILEVERSION     1,1,0,0
-    PRODUCTVERSION  1,1,0,0
+    FILEVERSION     1,2,0,0
+    PRODUCTVERSION  1,2,0,0
     FILEOS          VOS_NT_WINDOWS32
     FILETYPE        VFT_APP
     FILESUBTYPE     VFT2_UNKNOWN
@@ -126,12 +127,12 @@ VS_VERSION_INFO VERSIONINFO
         {
             VALUE "CompanyName", "Lino"
             VALUE "FileDescription", "arKad Emulator"
-            VALUE "FileVersion", "1.1.0.0"
+            VALUE "FileVersion", "1.2.0.0"
             VALUE "InternalName", "arKad"
             VALUE "LegalCopyright", ""
             VALUE "OriginalFilename", "arkad.exe"
             VALUE "ProductName", "arKad Emulator"
-            VALUE "ProductVersion", "1.1.0.0"
+            VALUE "ProductVersion", "1.2.0.0"
         }
     }
     BLOCK "VarFileInfo"

@@ -37,6 +37,9 @@ protected:
 
 	u32 GetSelectedListItemIndex(HWND w);
 	int OnChangeCpu(u32);
+	int UpdatePaletteView(HWND,HDC);
+	int UpdateLayersView(HWND,HDC);
+	int UpdateOAMView(HWND,HDC);
 	void _calc_lb_item_height(HWND win);
 	int Loop();
 	void OnButtonClicked(u32 id,HWND w);
@@ -48,8 +51,10 @@ protected:
 	virtual void OnCommand(u32 id,u32 c,HWND w);
 	virtual int Reset();
 	void _fillCodeWindow(u32 _pc,int cv);
-	void OnKeyScroolEvent(int v);
+	void OnKeyScrollEvent(int v,u32 id=0,HWND win=0);
+	void _adjustScrollViewport(int,HWND,double *r=0,u32 attr=1);
 	int GetAddressFromSelectedItem(HWND ,u32 *adr);
+	HTREEITEM GetListItemFromAddress(HWND w,u32 n);
 	void _adjustCodeViewport(u32 a,int v=-1);
 	void _invalidateView(int v=-1);
 	virtual int OnDisableCore();
@@ -63,6 +68,7 @@ protected:
 	int AddCommandQueue(u64 cmd);
 	int _updateAddressInfo(u32 _pc);
 	virtual int _updateToolbar();
+	int _getNoteFromAddress(u32,char **);
 	static void *thread1_func(void *data){
 		((DebugWindow *)data)->TimerThread();
 		return NULL;
@@ -72,10 +78,58 @@ private:
 		((DebugWindow *)data)->Threaad1Update();
 		return FALSE;
 	};
+
+	struct __mempage{
+		u32 _uMode;
+		u64 _uStart,_uEnd,_uAdr;
+		HWND _win;
+		vector<u64> _bookmark;
+
+		__mempage(){
+			_uStart=_uEnd=_uAdr=0;
+			_uMode=0;
+		};
+		__mempage(u64 a,u64 b){
+			_uStart=a;
+			_uEnd=b;
+			_uAdr=a;
+			_uMode=0;
+		};
+
+		int _reset(){
+			_uAdr=_uStart;
+			_bookmark.clear();
+			return 0;
+		};
+	};
+
+	struct __memView : DEBUGGERDUMPINFO{
+		vector<struct __mempage> _items;
+		u32 iCurrentPage,_id,_iPage,_charSz[2];
+		HWND _box,_view,_sb,_xb,_mb;
+
+		__memView();
+		~__memView();
+		int _reset();
+		int _addPage(HWND win,u32 attr=0,HWND *wr=0,int *ir=0);
+		int _switchPage(u32,HWND nbw=0);
+		int _addBookmark(u64);
+		int _delBookmark(u32 a=-1);
+		int _connect(u32 id,...);
+		int _onScroll(u32 id,HWND w,GtkScrollType t);
+		int _close(int i=-1);
+		int _setPageAddress(u64);
+		int _setPageDumpMode(u32);
+		int _getCurrentMode(u32 *);
+		protected:
+			int _update_bookmarks_menu();
+			int _adjustViewport();
+	} _memPages;
+
 	HWND _window;
 	pthread_t thread1;
 	int _itemHeight,_nItems,_iCurrentView;
-	u32 _pc,_startAddress,_endAddress,_editAddress,_lastAccessAddress;
+	u64 _pc;
 	CRITICAL_SECTION _cr;
 	DISVIEW _views[2];
 	char *_searchWord;

@@ -1,4 +1,3 @@
-#include "cpu.h.inc"
 
 #define RMAP_(a,b,c)
 
@@ -12,10 +11,6 @@
 	ONMEMORYUPDATE(a,d|AM_WRITE,this);\
 }
 
-#define WB(a,b)	W_(a,b,u8,AM_BYTE)
-#define WW(a,b)	W_(a,b,u16,AM_WORD)
-#define WL(a,b)
-
 #define R_(a,b,c,d){\
 	register void *tmp__= &_mem[(u16)(a)];\
 	__data=*((c *)tmp__);\
@@ -25,9 +20,12 @@
 	ONMEMORYUPDATE(a,d|AM_READ,this);\
 }
 
+#define WB(a,b)	W_(a,b,u8,AM_BYTE)
+#define WW(a,b)	W_(a,b,u16,AM_WORD)
+#define WL(a,b)
+
 #define RW(a,b) R_(a,b,u16,AM_WORD)
 #define RB(a,b) R_(a,b,u8,AM_BYTE)
-
 #define RL(a,b) (b)=*((u32 *)&_mem[(a)])
 
 #define RLPC(a,b) (b)=*((u32 *)&_mem[(a)])
@@ -158,6 +156,9 @@ if(__z) REG_F |= Z_BIT; else REG_F &=~Z_BIT;\
 if(__s) REG_F |= S_BIT; else REG_F &=~S_BIT;\
 }
 
+#ifndef __Z80CPUHINC__
+//#define __Z80CPUHINC__
+
 class Z80Cpu : public CCore{
 public:
 	Z80Cpu(void *p=NULL);
@@ -175,8 +176,20 @@ public:
 	virtual int Restart();
 protected:
 	virtual int Disassemble(char *dest,u32 *padr);
+	virtual int OnChangeIRQ(u32,u32 *)=0;
 	int _exec(u32);
 	u32 _opcode,_irq_pending;
 	u8 *_ioreg;
 	CoreMACallback *_portfnc_write_mem,*_portfnc_read_mem;
 };
+
+class Z80CpuShared : public Z80Cpu{
+public:
+	Z80CpuShared(void *m=NULL);
+	virtual ~Z80CpuShared();
+	virtual s32 fn_shared_mem_w(u32,pvoid ,pvoid ,u32 );
+	virtual int OnChangeIRQ(u32,u32 *){return -1;};
+	u8 *_ipc;
+};
+
+#endif

@@ -26,17 +26,20 @@ CF+=-s -fpermissive -mwindows -D_WIN32_WINNT=0x501 -D_DEBUG
 # CF=-g -fpermissive -D_DEBUG -DLOGLEVEL=9 -D_DEVELOP -Wno-deprecated-declarations
 
 #CF+=-Wfatal-errors
-LIBS=-lm -lcomctl32 -lgdi32 -lole32
+LIBS=-lm -lcomctl32 -lgdi32 -lole32 -lopengl32
 
-SUBDIR=cpu gfx audio machine device
-SOURCES=$(wildcard *.cpp $(foreach fd, $(SUBDIR), $(fd)/*.cpp))
-SOURCES+=$(wildcard *.rc $(foreach fd, $(SUBDIR), $(fd)/*.rc))
-SOURCES+=$(wildcard *.bin $(foreach fd, $(SUBDIR), $(fd)/*.bin))
-#SOURCES=main.cpp
+SUBDIR=cpu gfx audio machine res device
+CPPSRC=$(shell find $(foreach fd, $(SUBDIR), $(fd)) -regex '.*\.c[pp]*')
+SOURCES=$(wildcard *.cpp $(CPPSRC))
 OBJDIR=./objw
 CPPOBJ=$(patsubst %.cpp,$(OBJDIR)/%.o, $(SOURCES))
-OBJ=$(patsubst %.bin,$(OBJDIR)/%.o, $(patsubst %.rc,$(OBJDIR)/%.o, $(CPPOBJ)))
-INCLUDE_DIR+=$(patsubst %,-I%, $(SUBDIR))
+BINS=xpm bin glade
+OBJBIN=$(wildcard $(foreach fd, $(BINS), *.$(fd)))
+OBJ=$(foreach fd, $(BINS), $(patsubst %.$(fd), $(OBJDIR)/%.o, $(filter %.$(fd), $(OBJBIN))))
+OBJ+=$(CPPOBJ)
+
+INCLUDE_DIR+=$(patsubst %,-I%, $(shell find $(foreach fd, $(SUBDIR), $(fd)) -type d))
+
 
 #OBJ=$(addprefix $(OBJDIR)/, $(SOURCES:glade=o))
 

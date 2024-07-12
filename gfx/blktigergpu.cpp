@@ -3,68 +3,61 @@
 
 namespace blktiger{
 
-#ifdef _DEVELOP
-static FILE *lino=0;
-#endif
 
-BlkTigerGpu::BlkTigerGpu() : GPU(){
-	_simm=NULL;
-	_bank=0;
-#ifdef _DEVELOPa
-	if(!lino)
-		lino=fopen("gpu.txt","wb");
-#endif
+BlkTigerGpu::BlkTigerGpu() : GPU(),TileCharManager(){
+	_width=256;
+	_height=224;
 }
 
 BlkTigerGpu::~BlkTigerGpu(){
-#ifdef _DEVELOP
-	if(lino)
-		fclose(lino);
-	lino=0;
-#endif
+
 }
 
 int BlkTigerGpu::Init(){
-	if(GPU::Init(256,224))//vb-start 246
+	if(GPU::Init(256,224,0,0x10000*8 + 0x400*sizeof(u16)))//vb-start 246
 		return -1;//59.59Hz
-	if(!(_screen = malloc(_width*_height*sizeof(u16) + 0x10000*8 + 0x400*sizeof(u16))))
-		return -1;
 	_palette = ((u16 *)_screen + _width*_height*sizeof(u16));
 	_simm=(u8 *)&_palette[0x400];
-	for(int i=0;i<sizeof(_layers)/sizeof(struct __tile *);i++){
-		if(_layers[i])
-			_layers[i]->Init(i,*this);
-	}
+
+	_layers.push_back(&__layers[1]);
+	_layers.push_back(&__layers[0]);
+	_layers.push_back(&__oams);
+	_layers.push_back(&__txlayers);
+
+	__layers[1].Init(0,*this);
+	__layers[0].Init(1,*this);
+	__oams.Init(2,*this);
+	__txlayers.Init(3,*this);
+
 	return 0;
 }
 
 int BlkTigerGpu::Reset(){
 	GPU::Reset();
-	if(_screen)
-		memset(_screen,0,_width*_height*sizeof(u16));
-	for(int i=0;i<sizeof(_layers)/sizeof(struct __tile *);i++){
-		if(_layers[i])
+	Clear();
+	for(int i=0;i<_layers.size();i++){
+//		if(_layers[i])
 			_layers[i]->Reset();
 	}
 	_cycles=0;
 	return 0;
 }
 
-int BlkTigerGpu::Run(u8 *,int cyc){
+int BlkTigerGpu::Run(u8 *,int cyc,void *obj){
 	if((_cycles+=cyc)<381)
 		return 0;
 	_cycles-=381;
-	if(++_line==224)
+	if(++__line==224)
 		return 1;
-	if(_line==262){
-		_line=0;
+	if(__line==262){
+		__line=0;
 		machine->OnEvent((u32)-1,0);
 	}
 	return 0;
 }
 
-int BlkTigerGpu::Update(){
-	memset(_screen,0,_width*_height*2);
+int BlkTigerGpu::Update(u32 flags){
+	if(Clear()) return -1;
 	{
 		u8 *p;
 
@@ -79,7 +72,7 @@ int BlkTigerGpu::Update(){
 		}
 	}
 
-	for(int i=0;i<sizeof(_layers)/sizeof(struct __tile *);i++){
+	for(int i=0;i<_layers.size();i++){
 		if(!_layers[i])
 			continue;
 		_layers[i]->Reset();
@@ -91,85 +84,12 @@ int BlkTigerGpu::Update(){
 	return 0;
 }
 
-BlkTigerGpu::__tile::__tile(){
-	_value=0;
-	_char_width=16;
-	_char_height=16;
-	_visible=1;
-}
-
-void BlkTigerGpu::__tile::Init(int n,BlkTigerGpu &g){
-	_idx=n;
-	_char_ram=(u8 *)g._char_ram;
-	_tile_ram=(u8 *)g._gpu_mem;
-	_dst=(u16 *)g._screen;
-	_regs=(u32 *)g._gpu_regs;
-	_pal=(u16 *)g._palette;
-
-	_screen_width=g._width;
-	_screen_height=g._height;
-	_screen_end=(void *)((u16 *)g._screen + _screen_width*_screen_height);
-}
-
-void BlkTigerGpu::__tile::_drawRow(u16 *p){
-	int xi;
-
-	xi=1;
-	if(_flipx){
-		p += _char_width;
-		xi=-1;
-	}
-	for(int i=0;i<_char_width && _xx<_screen_width;i++,_xx++){
-		int xx,ofs;
-		int x=((i&4)*2)+((i&8)*32)+(_yy*16);
-
-		xx= x + (i&3);
-		ofs=_tileno+0x100000+4+xx;
-		int col,px=0;;
-		col =_src[(ofs)/8] & SR(0x80,ofs&7);
-		if(col)
-			px|=8;
-		ofs=_tileno+0x100000+xx;
-		col =_src[(ofs)/8] & SR(0x80,ofs&7);
-		if(col)
-			px|=4;
-		ofs=_tileno+4+xx;
-		col =_src[(ofs)/8] & SR(0x80,ofs&7);
-		if(col)
-			px|=2;
-		ofs=_tileno+0+xx;
-		col =_src[(ofs)/8] & SR(0x80,ofs&7);
-		if(col)
-			px|=1;
-		//fprintf(lino," %x ",xx);
-		if(px != 15)
-			*p=_pal[_palno+px];
-		p+=xi;
-	}
-		//fprintf(lino,"\n");
-}
-
-void BlkTigerGpu::__tile::Draw(u16 *pp){
-	int yi,xx;
-
-	yi=_screen_width;
-	if(_flipy){
-		yi=-_screen_width;
-		pp+=_screen_width*_char_width;
-	}
-	_src = ((u8 *)_char_ram);
-	xx=_xx;
-	for(_yy=0;_yy<_char_height;_yy++){
-		_xx=xx;
-		_drawRow(pp);
-		pp+=yi;
-	}
-	_xx=xx;
-}
-
-void BlkTigerGpu::__tile::Reset(){
-	_draw=_init=_layout=0;
-	_xx=0;
+int BlkTigerGpu::InitGM(GM *p){
+	if(GPU::InitGM(p)) return -1;
+	p->_char_ram=(u8 *)_char_ram;
+	p->_tile_ram=(u8 *)_gpu_mem;
+	p->_pal=(u16 *)_palette;
+	return 0;
 }
 
 void BlkTigerGpu::__layer::Draw(u16 *_dst){
@@ -180,22 +100,16 @@ void BlkTigerGpu::__layer::Draw(u16 *_dst){
 
 	u16 *dst=_dst;
 
-	offset=0;
 	if(_layout) {
 		printf("draw layyer layout %d\n",_idx);
 		goto A;
 	}
-	//printf("layer %d %d %d\n",_idx,_scrollx,_scrolly);
-
 
 	for(int row=0,yy=_scrolly%16;row <16;row++,yy += _char_height){
 		u16 *pp=dst;
 		if(yy < 0)
 			continue;
-#ifdef _DEVELOP
-		if(lino)
-		fprintf(lino,"%d %d  %d\t",_scrollx,_scrolly,_yy);
-#endif
+
 		for(int col=0,_xx=0;col<16;col++,_xx+=_char_width){
 			scrollx=SR(_scrollx+_xx,4);
 			scrolly=SR(_scrolly+16+yy,4);
@@ -210,20 +124,14 @@ void BlkTigerGpu::__layer::Draw(u16 *_dst){
 			_flipx = SR(data,15);
 
 			__tile::Draw(pp);
-			//fprintf(lino,"\n");
+
 			pp += _char_width;
 		}
-#ifdef _DEVELOP
-		if(lino)
-			fprintf(lino,"\n");
-#endif
+
 		if(yy>-1)
 			dst += _screen_width*_char_height;
 	}
-#ifdef _DEVELOP
-	if(lino)
-		fflush(lino);
-#endif
+
 //	fclose(lino);
 	//lino=0;
 A:
@@ -232,7 +140,13 @@ A:
 
 void BlkTigerGpu::__layer::Init(int n,BlkTigerGpu &g){
 	__tile::Init(n,g);
+	_setSize(16,16);
+	_trans_pen=15;
 	_scrollx=_scrolly=0;
+	_planes=4;
+	_trans_pen=15;
+	_planes_ofs[2]=0x100000;
+	_planes_ofs[3]=0x100004;
 }
 
 void BlkTigerGpu::__layer::Reset(){
@@ -252,10 +166,7 @@ int BlkTigerGpu::__layer::Save(){
 	if(!(dst = (u16 *)malloc(_screen_width*_screen_height*sizeof(u16))))
 		return -1;
 	memset(bits=dst,0,_screen_width*_screen_height*sizeof(u16));
-#ifdef _DEVELOP
-	if(lino)
-		fprintf(lino,"\n\n");
-#endif
+
 	for(int y=0,offset=0;y<_screen_height;y+=256){
 		u16 *p=dst;
 
@@ -305,35 +216,6 @@ A:
 	return res;
 }
 
-void BlkTigerGpu::__txlayer::_drawRow(u16 *p){
-	int xi;
-
-	xi=1;
-	if(_flipx){
-		p += _char_width;
-		xi=-1;
-	}
-
-	for(int i=0;i<_char_width;i++){
-		int px,xx,ofs;
-		int x=((i&4)*2)+(_yy*16);
-
-		xx= x + (i&3);
-		px=0;
-		ofs=_tileno+4+xx;
-		int col =_src[(ofs)/8] & SR(0x80,ofs&7);
-		if(col)
-			px |= 2;
-		ofs=_tileno+0+xx;
-		col =_src[(ofs)/8] & SR(0x80,ofs&7);
-		if(col)
-			px |= 1;
-		if(px != 3)
-			*p = _pal[_palno+px];
-		p+=xi;
-	}
-}
-
 void BlkTigerGpu::__txlayer::Draw(u16 *_dst){
 	if(!_visible) return;
 
@@ -364,16 +246,19 @@ void BlkTigerGpu::__txlayer::Draw(u16 *_dst){
 }
 
 void BlkTigerGpu::__txlayer::Init(int n,BlkTigerGpu &g){
-	__layer::Init(n,g);
+	__tile::Init(n,g);
 	_tile_ram = ((u8 *)g._pal_ram)-0x800;
 	_char_ram-=0x8000;
-	_char_height=_char_width=8;
+	_trans_pen=3;
 }
 
 void BlkTigerGpu::__oam::Init(int n,BlkTigerGpu &g){
-	__tile::Init(n,g);
+	__layer::Init(n,g);
 	_tile_ram=(u8 *)g._sprite_ram;
 	_char_ram+=0x40000;
+	_setSize(16,16);
+	_trans_pen=15;
+	_planes=4;
 }
 
 void BlkTigerGpu::__oam::Draw(u16 *dst){
@@ -382,34 +267,17 @@ void BlkTigerGpu::__oam::Draw(u16 *dst){
 	//printf("oam %d %d\n",_screen_width,_screen_height);
 	for (int offs = 0x200; offs >= 0; offs -= 4){
 		int attr = _tile_ram[offs + 1];
-		_tileno= (_tile_ram[offs] | (attr & 0xe0) << 3);
 	//	if(!_tileno) continue;
-		_xx = _tile_ram[offs + 3]- ((attr & 0x10) << 4) +8;
+		_xx = _tile_ram[offs + 3] - ((attr & 0x10) << 4) + 8;
 
 		if(_xx<0 || _xx > _screen_width) continue;
 		int sy = _tile_ram[offs + 2]-16;
 		if(sy<0 || sy>_screen_height) continue;
+		_tileno= (_tile_ram[offs] | (attr & 0xe0) << 3);
 		_tileno=SL(_tileno,9);
-	//	if(data)
-		//printf("%x %x\n",_tileno,data);
 		_palno = 0x200+SL(attr & 0x07,4);
 		_flipx = SR(attr & 0x08,3);
 
-		/*if (flip_screen())
-		{
-			sx = 240 - sx;
-			sy = 240 - sy;
-			flipx = !flipx;
-		}
-		*/
-
-		/*m_gfxdecode->gfx(2)->transpen(bitmap, cliprect,
-				code,
-				color,
-				flipx, flip_screen(),
-				sx + 128, sy + 6, 15);
-		*/
-		//printf("oam %d %d %d %x\n",sx,sy,offs/4,_tileno);
 		__tile::Draw(&dst[((sy)*_screen_width)+_xx]);
 	}
 }

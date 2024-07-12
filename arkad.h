@@ -56,6 +56,8 @@
 #endif
 
 typedef struct __IGame : IObject,IStreamer{
+	virtual int AddFile(char *,u32)=0;
+	virtual int GetFile(u32,char *)=0;
 } IGame;
 
 typedef struct __ISerializable{
@@ -98,8 +100,9 @@ typedef struct __ICompressedFile : public IStreamer{
 } ICompressedFile;
 
 #define NOARG
-#define STR_IMPL_(x) 	#x
-#define STR(x) 			STR_IMPL_(x)
+
+#define STR_(x)			#x
+#define STR(x) 			STR_(x)
 
 #ifdef __WIN32__
 	#define DPC_PATH '\\'
@@ -119,12 +122,16 @@ typedef struct __ICompressedFile : public IStreamer{
 	#define RGB(a,b,c) (SL((u8)c,16)|SL((u8)b,8)|(u8)a)
 
 	#define MAKELONG(a,b) (((b)<<16)|(a))
+	#define MAKEWORD(a,b) (((b)<<8)|(a))
 
 	#define LOWORD(a) ((u16)a)
 	#define HIWORD(a) ((u16)SR(a,16))
 	#define HIBYTE(a) ((u8)SR(a,8))
 	#define LOBYTE(a) ((u8)a)
 #endif
+
+#define CONCAT_(a,b) a##b
+#define CONCAT(a,b) CONCAT_(a,b)
 
 #define MAKEHWORD(a,b) ((((u8)(b))<<8)|(((u8)a)))
 #define MAKEBYTE(a,b) (((b)<<4)|(a))
@@ -142,7 +149,18 @@ typedef struct __ICompressedFile : public IStreamer{
 #define MHZ(a) (KHZ((a))*1000)
 #define GHZ(a) (MHZ((a))*1000)
 
-extern u32 __cycles,__data;
+#define EX_SIGN(a,b) SR(SL((s32)a,(32-b)),(32-b))
+#define RADIANS(a) ((a) * (3.141592f / 180.0f))
+
+#define SC_FXD	12
+#define SM_FXD	(SL(1,SC_FXD)-1)
+#define NFXD(a) SL((a),SC_FXD)
+#define ONEFXD NFXD(1)
+#define DFXD(a) ((s32)((a)/(float)ONEFXD))
+#define IFXD(a) (SR((s32)(a),SC_FXD))
+
+extern u32 __cycles,__line,__frame,__address;
+extern u64 __data;
 extern int _error_level;
 extern ICore *cpu;
 extern IMachine *machine;
@@ -159,7 +177,9 @@ extern "C" {
 
 void on_menuitem_select(GtkMenuItem* item,gpointer user_data);
 gboolean on_mouse_down (GtkWidget* self, GdkEventButton *event,gpointer user_data);
+gboolean on_mouse_move (GtkWidget* self, GdkEventMotion *event,gpointer user_data);
 void on_menu_init (GtkWidget  *item, GtkWidget *p,  gpointer   user_data);
+gboolean on_scroll_event(GtkWidget *range,GdkEventScroll *e,gpointer user_data);
 void on_button_clicked(GtkButton *button,gpointer user_data);
 void on_command(GtkWidget* item,gpointer user_data);
 gboolean on_scroll_change(GtkRange *range,GtkScrollType scroll,gdouble value,gpointer user_data);
@@ -187,7 +207,8 @@ extern LPGDIPLOADIMAGEFROMSTREAM pfnGdipLoadImageFromStream;
 }
 #endif
 
-u64 isDebug(u64 v=S_DEBUG);
+
+u64 isDebug(u64);
 void EnterDebugMode(u64 v=0,u64 f=0);
 void OnMemoryUpdate(u32 a,u32 b,void *c=NULL);
 void _log_printf(int level,const char *fmt,...);
@@ -214,6 +235,11 @@ void _log_printf(int level,const char *fmt,...);
 	#define LOGF(fmt,...) LOG(isDebug(DEBUG_LOG_DEV) ? -1 : 4,(fmt),## __VA_ARGS__)
 
 	#define ONMEMORYUPDATE(a,b,c)	OnMemoryUpdate((a),b,c)
+
+	#define _LOG(l,a,...){\
+		u32 pc__;cpu->Query(ICORE_QUERY_PC,&pc__);\
+		LOG(isDebug(DEBUG_LOG_DEV) ? -1 : l,STR(%08x %u %u %u\x09) a STR(\n),pc__,__cycles,__frame,__line,## __VA_ARGS__);}
+	#define DLOG(a,...) _LOG(4,a,## __VA_ARGS__)
 #else
 	#define DEVF(fmt,...)
 	#define LOGF(fmt,...)
@@ -228,6 +254,8 @@ void _log_printf(int level,const char *fmt,...);
 	#define LOGI(fmt,...)
 	#define LOGD(fmt,...)
 	#define LOGE(fmt,...)
+
+	#define DLOG(a,...)
 #endif
 
 #endif
