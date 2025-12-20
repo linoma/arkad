@@ -6,7 +6,7 @@ extern GUI gui;
 namespace c64{
 
 struct __imagestreamer : public FileStream,vector<c64dev::c64_dir_entry>{
-	__imagestreamer() : FileStream(){
+	__imagestreamer() : FileStream(),vector<c64dev::c64_dir_entry>(){
 	}
 	virtual int Add(char *c=NULL)=0;
 //protected:
@@ -389,7 +389,7 @@ int c64m::OnEvent(u32 ev,...){
 		case ME_MOUSEBUTTONUP:{
 			va_start(arg, ev);
 			Machine::OnEventI(ev,arg);
-			_joy[0].push_back({__frame,4,_mouse[0],_mouse[1],_mouse[2],_mouse[3]});
+			_joy[0].push_back({4,_mouse[0],_mouse[1],_mouse[2],_mouse[3]});
 			va_end(arg);
 			return 0;
 		}
@@ -398,7 +398,7 @@ int c64m::OnEvent(u32 ev,...){
 			Machine::OnEventI(ev,arg);
 			int w=va_arg(arg,int);
 			int v=va_arg(arg,int);
-			_keyboard.push_back({__frame,3,1,v,w});
+			_keyboard.push_back({3,1,v,w});
 			va_end(arg);
 			return 0;
 		}
@@ -408,7 +408,7 @@ int c64m::OnEvent(u32 ev,...){
 			Machine::OnEventI(ev,arg);
 			int w=va_arg(arg,int);
 			int v=va_arg(arg,int);
-			_keyboard.push_back({__frame,3,0,v,w});
+			_keyboard.push_back({3,0,v,w});
 			va_end(arg);
 			return 0;
 		}
@@ -594,22 +594,6 @@ int c64m::Query(u32 what,void *pv){
 				return -2;
 			*((LPDEBUGGERPAGE *)pv)=p;
 			memset(p,0,9*sizeof(DEBUGGERPAGE));
-			p->size=sizeof(DEBUGGERPAGE);
-			strcpy(p->title,"Registers");
-			strcpy(p->name,"3100");
-			p->type=1;
-			p->popup=1;
-
-			p++;
-			p->size=sizeof(DEBUGGERPAGE);
-			strcpy(p->title,"Memory");
-			strcpy(p->name,"3102");
-			p->type=2;
-			p->editable=1;
-			p->popup=1;
-			p->clickable=1;
-
-			p++;
 			memset(p,0,sizeof(DEBUGGERPAGE));
 			p->size=sizeof(DEBUGGERPAGE);
 			strcpy(p->title,"IO");
@@ -617,16 +601,6 @@ int c64m::Query(u32 what,void *pv){
 			p->type=1;
 			p->popup=1;
 
-			p++;
-			memset(p,0,sizeof(DEBUGGERPAGE));
-			p->size=sizeof(DEBUGGERPAGE);
-			strcpy(p->title,"Call Stack");
-			strcpy(p->name,"3106");
-			p->type=1;
-			p->popup=1;
-
-			p++;
-			memset(p,0,sizeof(DEBUGGERPAGE));
 		}
 		return 0;
 		case ICORE_QUERY_ADDRESS_INFO:{

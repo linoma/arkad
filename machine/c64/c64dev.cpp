@@ -461,7 +461,7 @@ int c64dev::__keyboard::update(int cyc){
 		memset(_rows,0xff,sizeof(_rows));
 		return 0;
 	}
-	__message &m=front();
+	EVENTMSG &m=front();
 	erase(begin());
 	_translate(m._buf[1],m._buf[0]|SL(m._buf[2],1));
 	return 0;
@@ -654,7 +654,7 @@ int c64dev::__joystick::update(int cyc){
 //		goto Z;
 	_cycles=__cycles;
 	if(size()){
-		struct __message &m=front();
+		EVENTMSG &m=front();
 		erase(begin());
 		memcpy(_buf,m._buf,4*sizeof(u32));
 	}

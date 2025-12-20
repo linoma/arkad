@@ -17,7 +17,6 @@ CPS3M::~CPS3M(){
 }
 
 int CPS3M::Load(IGame *pg,char *path){
-	FILE *fp;
 	u32 u,ofs,i,d[10];
 	u8 *p;
 
@@ -65,7 +64,7 @@ int CPS3M::Load(IGame *pg,char *path){
 			v|=SL(p[0x200000+i],0);
 			v|=SL(p[0x200000+i+1],16);
 
-			*((u32 *)&M_ROM[u]) = v;
+			*(u32 *)&M_ROM[u] = v;
 			u+=4;
 		}
 		memcpy(p,M_ROM,u);
@@ -77,19 +76,18 @@ int CPS3M::Load(IGame *pg,char *path){
 	p=&_memory[MI_USER4];
 	for(ofs=0;ofs<0x800000*2;ofs+=0x800000,p+=0x800000){
 		for (i = 0; i < 0x800000; i +=4){
-			u32 v,vv;
+			u32 vv;
 
 			vv=SL(p[i/4],24);
-			vv|=SL(p[0x200000+i/4],16);
-			vv|=SL(p[0x400000+i/4],8);
-			vv|=SL(p[0x600000+i/4],0);
-
-			*((u32 *)&M_ROM[i+ofs]) = vv;
+			vv|=SL(p[0x200000+(i/4)],16);
+			vv|=SL(p[0x400000+(i/4)],8);
+			vv|=SL(p[0x600000+(i/4)],0);
+			*(u32 *)&((u8 *)M_ROM)[i+ofs] =vv;
 		}
 		memcpy(_mem,M_ROM+ofs,i);
 		for (i = 0; i < 0x800000; i += 4){
-			u32 xormask = _decrypt(i+0x6000000+ofs);
-			*((u32 *)&M_ROM[i+ofs]) = *((u32 *)&_mem[i])^xormask;
+			u32 vv = _decrypt(i+0x6000000+ofs);
+			*((u32 *)&M_ROM[i+ofs]) = *((u32 *)&((u8 *)_mem)[i]) ^ vv;
 		}
 	}
 
@@ -133,8 +131,8 @@ int CPS3M::Reset(){
 int CPS3M::Init(){
 	if(Machine::Init())
 		return -1;
-	_mem=&_memory[MI_DUMMY];
-
+	if(SH2Cpu::Init(&_memory[MI_DUMMY]))
+		return -2;
 	_gpu_mem=M_VRAM;
 	_gpu_regs=M_PPU;
 	_pcm_regs=M_SPU;
@@ -146,7 +144,7 @@ int CPS3M::Init(){
 	_ss_regs=M_EXT+KB(5);
 	_ss_ram=M_SSRAM;
 	CPS3DEV::Init(*this);
-	SH2Cpu::Init(0);
+
 	CPS3GPU::Init();
 	CPS3DAC::Init(*this);
 
@@ -161,7 +159,7 @@ int CPS3M::Init(){
 	SetIO_cb(0x24000000,(CoreMACallback)&CPS3M::fn_flash_w,	(CoreMACallback)&CPS3M::fn_flash_r);
 	SetIO_cb(0x25000000,(CoreMACallback)&CPS3M::fn_flash_w,(CoreMACallback)&CPS3M::fn_flash_r);
 	SetIO_cb(0x26000000,(CoreMACallback)&CPS3M::fn_flash_w,(CoreMACallback)&CPS3M::fn_flash_r);
-
+	SetIO_cb(0xc0000000,(CoreMACallback)&CPS3M::fn_crypted_rom_w,NULL);
 	return 0;
 }
 
@@ -179,7 +177,6 @@ int CPS3M::Exec(u32 status){
 	EXECTIMEROBJLOOP(ret,OnEvent(i__,0),_ioreg);
 	//419533/264=1589
 	MACHINE_ONEXITEXEC(status,0);
-
 }
 
 int CPS3M::OnEvent(u32 ev,...){
@@ -198,13 +195,12 @@ int CPS3M::OnEvent(u32 ev,...){
 				return 0;
 			ev=log2(_gic._irq_pending);
 		break;
-		case ME_MOVEWINDOW:
-			{
-				int x,y,w,h;
+		case ME_MOVEWINDOW:{
+				int w,h;
 
 				va_start(arg, ev);
-				x=va_arg(arg,int);
-				y=va_arg(arg,int);
+				w=va_arg(arg,int);
+				w=va_arg(arg,int);
 				w=va_arg(arg,int);
 				h=va_arg(arg,int);
 				CreateBitmap(w,h);
@@ -219,7 +215,7 @@ int CPS3M::OnEvent(u32 ev,...){
 		case ME_KEYUP:{
 				u32 key;
 
-				CALLEE(Machine::OnEvent,ev,key=,arg);
+				CALLEE(Machine::OnEventI,ev,key=,arg);
 				if(key < 32)
 					_ports[0] |= SL(1,key);
 				else{
@@ -230,7 +226,7 @@ int CPS3M::OnEvent(u32 ev,...){
 		case ME_KEYDOWN:{
 				u32 key;
 
-				CALLEE(Machine::OnEvent,ev,key=,arg);
+				CALLEE(Machine::OnEventI,ev,key=,arg);
 				if(key < 32){
 					_ports[0] &= ~SL(1,key);
 				}
@@ -241,7 +237,7 @@ int CPS3M::OnEvent(u32 ev,...){
 			return 0;
 		default:
 			if(BVT(ev,31))
-				CALLEE(Machine::OnEvent,ev,return,arg);
+				CALLEE(Machine::OnEventI,ev,return,arg);
 			{
 				va_start(arg, ev);
 				int i=va_arg(arg,int);
@@ -254,7 +250,7 @@ int CPS3M::OnEvent(u32 ev,...){
 		break;
 	}
 
-	if(ev <= SR((u8)_sr,4)){
+	if(ev <= SR((u8)REG_SR,4)){
 	//	EnterDebugMode();
 		BS(_gic._irq_pending,BV(ev));
 		return 1;
@@ -286,11 +282,38 @@ int CPS3M::OnEvent(u32 ev,...){
 	return 0;
 }
 
+u32 CPS3M::_decrypt(u32 address){
+	u16 val;
+
+	address ^= _key1;
+	val = rotxor(~(u16)address, (u16)_key2);
+	val ^= ~(address >> 16);
+	val = rotxor(val, _key2 >> 16);
+	val ^= (u16)address ^ (u16)_key2;
+	return val | (val << 16);
+}
+
+#define CPS3ROL(a,n) ((a<<n)|(a>>(16-n)))
+
+u16 CPS3M::rotate_left(u16 value, int n){
+ //  u16 aux = value>>(16-n);
+   return ((value<<n)|(value >> (16-n)));
+}
+
+u16 CPS3M::rotxor(u16 val, u16 x){
+	u16 res;
+
+	res = val + ROL_(val,2,16,u16);
+	return ROL_(res,4,16,u16) ^ (res & (val ^ x));
+}
+
 s32 CPS3M::fn_crypted_rom_w(u32 a,pvoid mem,pvoid data,u32 f){
+	void *p=&M_DCRAM[a&0x3ff];
+	*((u32 *)p)=__data ^_decrypt(a);
 	return 1;
 }
 
-s32 CPS3M::fn_crypted_rom_r(u32 a,pvoid mem,pvoid data,u32 f){
+s32 CPS3M::fn_crypted_rom_r(u32 a,pvoid,pvoid data,u32 f){
 	if(_flashs[0]->_invalidate || _flashs[1]->_invalidate){
 		u32 i,u;
 		u8 *p;
@@ -356,7 +379,7 @@ s32 CPS3M::fn_crypted_rom_r(u32 a,pvoid mem,pvoid data,u32 f){
 	return 1;
 }
 
-s32 CPS3M::fn_gpu_device_r(u32 a,pvoid mem,pvoid data,u32 f){//04
+s32 CPS3M::fn_gpu_device_r(u32 a,pvoid,pvoid data,u32 f){//04
 //	fprintf(stderr,"fn_gpu_device_r %x\n",a);
 	switch(SR(a,20) & 0xf){
 		case 0:
@@ -387,15 +410,13 @@ s32 CPS3M::fn_gpu_device_r(u32 a,pvoid mem,pvoid data,u32 f){//04
 	}
 	return 1;
 }
-//61337fc 6133822 06133c20
-s32 CPS3M::fn_gpu_device_w(u32 a,pvoid mem,pvoid data,u32 m){//04
+
+s32 CPS3M::fn_gpu_device_w(u32 a,pvoid pmem,pvoid data,u32 m){//04
 	switch(SR(a,20)&0xf){
 		case 1:
-
 			return 1;
 		case 2:
-		case 3:
-		{
+		case 3:{
 			u8 idx = _simm_bank;
 			//if(idx){
 				idx=SR(_simm_bank,3);
@@ -407,6 +428,7 @@ s32 CPS3M::fn_gpu_device_w(u32 a,pvoid mem,pvoid data,u32 m){//04
 		}
 		break;
 		case 0:
+			*((u16 *)pmem)=*((u16 *)data);
 			switch((u8)SR(a,16)){
 				case 0xc:{
 					u8 r=(u8)a;
@@ -431,8 +453,7 @@ s32 CPS3M::fn_gpu_device_w(u32 a,pvoid mem,pvoid data,u32 m){//04
 							//printf("_cram_bank %x\n",_cram_bank);
 						break;
 						case 0x88:
-						case 0x8a:
-						{
+						case 0x8a:{
 							u32 a = PPU_REG16(0x8a);
 							if(a != _simm_bank){
 								_simm_bank=a-2;
@@ -473,6 +494,7 @@ s32 CPS3M::fn_gpu_device_w(u32 a,pvoid mem,pvoid data,u32 m){//04
 							}
 						break;
 					}
+					return 0;
 				}
 				break;
 				case 0xe:
@@ -518,7 +540,7 @@ s32 CPS3M::fn_gfx_device_r(u32 a,pvoid,pvoid data,u32 f){//05
 	return 1;
 }
 
-s32 CPS3M::fn_gfx_device_w(u32 a,pvoid m,pvoid data,u32 f){//05
+s32 CPS3M::fn_gfx_device_w(u32 a,pvoid,pvoid data,u32 f){//05
 	//if(a&0x20000000 == 0) return fn_gpu_device_w(a,m,data,f);
 //	fprintf(stderr,"%x %x fn_gfx_device_w\n",a,SR(a,20) & 0xf);
 	switch(a&0x100000){
@@ -563,7 +585,7 @@ s32 CPS3M::fn_gfx_device_w(u32 a,pvoid m,pvoid data,u32 f){//05
 s32 CPS3M::fn_flash_w(u32 a,pvoid,pvoid data,u32 f){
 	u8 idx;//6163752
 
-	//printf(stderr,"fn_flash_w %x %x\n",a,SR(a,24) & 0xf);
+	//printf("fn_flash_w %x %x\n",a,SR(a,24) & 0xf);
 	switch((idx = SR(a,24) & 0xf)){
 		case 0x4:
 			idx=3+(_simm_bank/8);//  (idx-4)+SR(a&0x800000,23);//gfx rom
@@ -595,13 +617,13 @@ s32 CPS3M::fn_flash_w(u32 a,pvoid,pvoid data,u32 f){
 			return 1;
 	}
 	_flashs[idx]->write(a,__data,f);
-	return 0;
+	return 1;
 }
 
-s32 CPS3M::fn_flash_r(u32 a,pvoid mem,pvoid data,u32 f){
+s32 CPS3M::fn_flash_r(u32 a,pvoid,pvoid data,u32 f){
 	u8 idx;
 
-	//printf("%x %x\n",a,_pc);
+	//printf("fn_flash_r %x %x\n",a,_pc);
 	switch((idx = SR(a,24) & 0xf)){
 		case 0x4:
 			idx=3+(_simm_bank/8);//idx=(idx-4) + SR(a&0x800000,23);
@@ -630,13 +652,13 @@ s32 CPS3M::fn_flash_r(u32 a,pvoid mem,pvoid data,u32 f){
 		*((u32 *)data)=_flashs[idx]->_data;
 		//LOGD("FLASH %x %x %x\n",a,__data,_pc);
 	}
-	return 0;
+	return 1;
 }
 
-s32 CPS3M::fn_device(u32 a,pvoid mem,pvoid data,u32){
+s32 CPS3M::fn_device(u32 a,pvoid pmem,pvoid data,u32){
 	u8 idx;
 
-//	fprintf(stderr,"fn_device %x \n",a);
+	//fprintf(stderr,"fn_device %x \n",a);
 	switch((idx = SR(a&0x1ff,2))){
 		case 4:
 		case 5:{
@@ -647,16 +669,14 @@ s32 CPS3M::fn_device(u32 a,pvoid mem,pvoid data,u32){
 			//LOGI("TIMER %x %x %x ic.%x sc:%x %u\n",a,IOREG(4),IOREG(5),_timer._ic,_timer._sc,_timer._count);
 		}
 		break;
-		case 0x18:
-		{
+		case 0x18:{
 			//_gic.iprb=(u16)*((u16 *)data);
 			u16 u=(u16)*((u16 *)data);
 			for(int i=0;i<4;i++,u=SR(u,4))
 				_gic._levels[7-i]=(u&0xf);
 		}
 		case 0x19:
-		case 0x1a:
-		{
+		case 0x1a:{
 			u32 v=IOREG(0x18);
 			_gic._vectors[7]=(u8)v;
 			_gic._vectors[6]=(u8)SR(v,8);
@@ -670,8 +690,7 @@ s32 CPS3M::fn_device(u32 a,pvoid mem,pvoid data,u32){
 			_gic._vectors[0]=(u8)SR(v,8);
 		}
 		break;
-		case 0x38:
-		{
+		case 0x38:{
 			u16 u=(u16)*((u16 *)data);
 			//_gic.ipra=(u16)*((u16 *)data);
 			for(int i=0;i<4;i++,u=SR(u,4))
@@ -686,16 +705,19 @@ s32 CPS3M::fn_device(u32 a,pvoid mem,pvoid data,u32){
 		case 0x61:
 		break;
 		case 0x63://dma control ch 0
+			*((u32 *)pmem)=*((u32 *)data);
 			_do_dma(0);
 			//LOGD("DMA %x\n",a);
 		break;
 		case 0x67://dma control ch 1
+			*((u32 *)pmem)=*((u32 *)data);
 			_do_dma(1);
 			//LOGD("DMA %x\n",a);
 		break;
 		case 0x6c://dma master
 			//*((u32 *)&_ioreg[0x18c]) |= BV(1);//transfer complete
 			//LOGD("DMA %x %x PC:%x\n",a,IOREG(0x6c),_pc);
+			*((u32 *)pmem)=*((u32 *)data);
 			_do_dma(0);
 			_do_dma(1);
 			LOGD("DMA MASTER %x\n",a);
@@ -714,12 +736,11 @@ s32 CPS3M::fn_device(u32 a,pvoid mem,pvoid data,u32){
 			LOGD("%x %x %x PC:%x\n",a,idx,*((u32 *)&_ioreg[a&0x1fc]),_pc);
 		break;
 	}
-	return 0;
+	return 1;
 }
 
 int CPS3M::_do_dma(int ch){
 	u32 src,dst,count,incs,incd;
-	void *p,*pp;
 
 	if(BT(DMA_CR(ch),BV(0))==0 || BT(IOREG(0x6c),BV(0))==0)
 		return 0;
@@ -756,8 +777,7 @@ int CPS3M::_do_dma(int ch){
 		default:
 			EnterDebugMode();
 		break;
-		case 2:
-		{
+		case 2:{
 			src &= ~3;
 			dst &= ~3;
 			for(;count > 0; count --){
@@ -798,13 +818,9 @@ int CPS3M::Query(u32 what,void *pv){
 		case ICORE_QUERY_CURRENT_SCANLINE:
 			*((u32 *)pv)=__line;
 			return 0;
-		case IMACHINE_QUERY_MEMORY_ACCESS:
-			{
-				u32  a = *((u32 *)pv);
-
-			//	printf("adr %x %p\n",a,&_mem[MB(16)]);
-				void **p = (void **)(u64 *)((u8 *)pv + 4);
-				*p = (void *)&_mem[MB(16)];
+		case IMACHINE_QUERY_MEMORY_ACCESS:{
+				LPMEMORYACCESS d=(LPMEMORYACCESS)pv;
+				d->mem = (void *)&_mem[MB(16)];
 			}
 			return 0;
 		case ICORE_QUERY_SET_LOCATION:{
@@ -879,40 +895,10 @@ int CPS3M::Query(u32 what,void *pv){
 				fclose(fp);
 		}
 			return -1;
-		case ICORE_QUERY_MEMORY_FIND:{
-				int i=0;
-				u8 *pp,*p=(u8 *)pv;
-				char *c = (char *)*((u64 *)p);
-				p += sizeof(char *);
-
-				RMAP_(((u32 *)p)[0],pp,R);
-#ifdef _DEVELOP
-				printf(" find %x %x %s\n",*((u32 *)p),((u32 *)p)[1],c);
-#endif
-				for(s32 i=0;i<((u32 *)p)[1];i++){
-					s32 n;
-
-					for(n=0;c[n];n++,i++){
-						if(c[n] != pp[i])
-							break;
-					}
-					if(!c[n]){
-						((u32 *)p)[0]+=i-n;
-						printf("%x\n",((u32 *)p)[0]);
-						return 0;
-					}
-				}
-#ifdef _DEVELOP
-				printf(" not find %x %x %s\n",*((u32 *)p),((u32 *)p)[1],c);
-#endif
-				return 0;
-			}
-
-			return -2;
 		case ICORE_QUERY_DBG_MENU_SELECTED:
 			{
 				u32 id =*((u32 *)pv);
-printf("%x\n",id);
+				printf("%x\n",id);
 				switch((u16)id){
 					case 7:
 						return -1;
@@ -963,23 +949,6 @@ printf("%x\n",id);
 				*((LPDEBUGGERPAGE *)pv)=p;
 
 				memset(p,0,sizeof(DEBUGGERPAGE));
-				p->size=sizeof(DEBUGGERPAGE);
-				strcpy(p->title,"Registers");
-				strcpy(p->name,"3100");
-				p->type=1;
-				p->popup=1;
-
-				p++;
-				memset(p,0,sizeof(DEBUGGERPAGE));
-				p->size=sizeof(DEBUGGERPAGE);
-				strcpy(p->title,"Memory");
-				strcpy(p->name,"3102");
-				p->type=2;
-				p->editable=1;
-				p->popup=1;
-				p->clickable=1;
-
-				p++;
 				memset(p,0,sizeof(DEBUGGERPAGE));
 				p->size=sizeof(DEBUGGERPAGE);
 				strcpy(p->title,"Ext");
@@ -1012,51 +981,39 @@ printf("%x\n",id);
 				p->clickable=1;
 				//p->popup=1;
 
-				p++;
-				memset(p,0,sizeof(DEBUGGERPAGE));
-				p->size=sizeof(DEBUGGERPAGE);
-				strcpy(p->title,"Call Stack");
-				strcpy(p->name,"3108");
-				p->type=1;
-				p->popup=1;
-
-				p++;
-				memset(p,0,sizeof(DEBUGGERPAGE));
 			}
 			return 0;
-		case ICORE_QUERY_ADDRESS_INFO:
-			{
-				u32 adr,*pp,*p = (u32 *)pv;
-				adr =*p++;
-				pp=(u32 *)*((u64 *)p);
+		case ICORE_QUERY_ADDRESS_INFO:{
+				LPMEMORYACCESS d =(LPMEMORYACCESS)pv;
+				u32 adr=d->addr;
 				switch(SR(adr,24)){
 					case 0:
-						pp[0]=0;
-						pp[1]=KB(512);
+						d->addr=0;
+						d->size=KB(512);
 						break;
 					case 2:
-						pp[0]=0x02000000;
-						pp[1]=KB(512);
+						d->addr=0x02000000;
+						d->size=KB(512);
 					break;
 					case 4:
-						pp[0]=0x040c0000;
-						pp[1]=KB(1);
+						d->addr=0x040c0000;
+						d->size=KB(1);
 					break;
 					case 6:
-						pp[0]=0x06000000;
-						pp[1]=MB(16);
+						d->addr=0x06000000;
+						d->size=MB(16);
 					break;
 					case 0x24:
-						pp[0]=0x24000000;
-						pp[1]=MB(16);
+						d->addr=0x24000000;
+						d->size=MB(16);
 						break;
 					case 0x25:
-						pp[0]=0x25000000;
-						pp[1]=MB(64);
+						d->addr=0x25000000;
+						d->size=MB(64);
 						break;
 					case 0xc0:
-						pp[0]=0xc0000000;
-						pp[1]=0x400;
+						d->addr=0xc0000000;
+						d->size=0x400;
 						break;
 					default:
 						return -2;
@@ -1069,8 +1026,8 @@ printf("%x\n",id);
 }
 
 int CPS3M::Dump(char **pr){
-	int res,i;
-	char *c,*cc,*p,*pp;
+	int res;
+	char *c,*cc,*p;
 	u8 *mem;
 	u32 adr;
 	DEBUGGERDUMPINFO di;
@@ -1082,7 +1039,7 @@ int CPS3M::Dump(char **pr){
 
 	*((u64 *)c)=0;
 	cc = &c[590000];
-	pp=&cc[900];
+	//pp=&cc[900];
 	res = 0;
 	p=c;
 	strcpy(p,"3100");
@@ -1167,7 +1124,7 @@ int CPS3M::Dump(char **pr){
 
 	*((u64 *)p)=0;
 	mem=M_PPU;
-	pp=&cc[900];
+//	pp=&cc[900];
 	for(int n=0,i=0;i<0x100;i+=2,mem+=2){
 		*cc=0;
 		sprintf(cc,"%3X: %04x ",i,*((u16 *)mem));
@@ -1199,7 +1156,7 @@ int CPS3M::Dump(char **pr){
 	res+=9;
 	*((u64 *)p)=0;
 	mem=M_SPU;
-	pp=&cc[900];
+//	pp=&cc[900];
 	for(int n=0,i=0;i<0x203;i+=4,mem+=4){
 		*cc=0;
 		sprintf(cc,"%3X: %08x ",i,*((u32 *)mem));
@@ -1222,7 +1179,7 @@ int CPS3M::Dump(char **pr){
 	res+=9;
 	*((u64 *)p)=0;
 	mem=(u8 *)M_EEPROM;
-	pp=&cc[900];
+//	pp=&cc[900];
 	for(int n=0,i=0;i<0x100;i+=2,mem+=2){
 		*cc=0;
 		sprintf(cc,"%3X: %04x ",i,*((u16 *)mem));
@@ -1267,5 +1224,7 @@ int CPS3M::LoadState(IStreamer *p){
 
 	return 0;
 }
+
+#include "sh.cpp.inc"
 
 };

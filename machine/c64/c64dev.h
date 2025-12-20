@@ -30,24 +30,10 @@ public:
 			if(p) strcpy(name,p);
 		};
 	};
-
-	struct __message{
-		u32 _frame,_buf[5];
-		__message(u32 f,...){
-			va_list arg;
-
-			_frame=f;
-			memset(_buf,0,sizeof(_buf));
-			va_start(arg,f);
-			for(u32 n=0,i=va_arg(arg,u32);i;i--,n++)
-				_buf[n]=va_arg(arg,u32);
-			va_end(arg);
-		}
-	};
 protected:
 	u8 *_ports;
 
-	class __keyboard : public vector<__message>,public ADevice{
+	class __keyboard : public vector<EVENTMSG>,public ADevice{
 		public:
 		__keyboard();
 		virtual ~__keyboard();
@@ -70,7 +56,7 @@ protected:
 		u8 _key,_rows[16],*_cols;
 	} _keyboard;
 
-	class __joystick : public ADevice,public vector<__message>{
+	class __joystick : public ADevice,public vector<EVENTMSG>{
 		public:
 		union{
 			u8 _status;

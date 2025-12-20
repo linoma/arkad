@@ -10,41 +10,68 @@
 
 namespace ps1{
 
-class PS1M;
-
 #define PS1ME_PLAYTRACK				MACHINE_EVENT(0x100)
 #define PS1ME_PLAY_XA_SECTOR		MACHINE_EVENT(0x101)
 
+#undef MIPSCORE
+
 #include "r3000.h.inc"
+
+#define RMAP_IO(a) (((a) & 0xfff)|SR((a)&0x200000,5))
 
 #define RMAP_(a,b,c)\
 if(((a)>= 0x80000000 && (a)<=0x807FFFFF) || ((a)>=0 && a <= 0x7fffff) || ((a) >= 0xa0000000 && (a)<= 0xa07fffff)) b=&((u8 *)_mem)[(a)&0x1fffff];\
 else if((a) >=0x1f800000 && (a)<=0x1f8003ff) b=(u8 *)&((u8 *)_mem)[MB(9) +(a&0x3ff)];\
-else if((a) >=0x1f801000 && (a)<=0x1f803000) b=(u8 *)&((u8 *)_io_regs)[RMAP_IO(a)];\
+else if((a) >=0x1f801000 && (a)<=0x1f803000) b=(u8 *)&((u8 *)_ioreg)[RMAP_IO(a)];\
 else if((a) >=0x1f900000 && (a)<=0x1f9fffff) b=(u8 *)&((u8 *)_mem)[MB(5) +(a&0xfffff)];\
 else b=NULL;
 
-#define ISIO(a) (a&0xfffff000)==0x1f801000
-#define RIO(a,b,c,d) if(ISIO(a)){register u32 a__=RMAP_IO(a);\
+#define ISIO(a) ((a&0xfffff000)==0x1f801000)
+#define RIO(a,b,c,d) if(ISIO(a)){u32 a__=RMAP_IO(a);\
 	if(_portfnc_read[a__]) (((CCore *)this)->*_portfnc_read[a__])(a,b,&__data,d);\
 }
 
-#define WIO(a,b,c,d,e) if(ISIO(a)){register u32 a__ = RMAP_IO(a);\
+#define WIO(a,b,c,d,e) if(ISIO(a)){u32 a__ = RMAP_IO(a);\
 	if(_portfnc_write[a__]) e (((CCore *)this)->*_portfnc_write[a__])(a,b,c,d);\
 }
-#define RMAP_IO(a) (((a) & 0xfff)|SR((a)&0x200000,5))
+
+class PS1M;
 
 class PS1DEV : public R3000Cpu,public PS1GPU, public PS1SPU{
 public:
 	PS1DEV();
 	virtual ~PS1DEV();
 	virtual int Reset();
-	virtual int Init(PS1M &);
-	virtual int do_sync(u32,...);
+	virtual int Init();
+	int do_sync(u32);
+	struct __dma;
+	virtual int do_dma(struct __dma *);
 protected:
+	virtual int _enterIRQ(int n,u32 pc=0);
+
+	__mdec _mdec;
+	__gte GTE;
+
 	struct __joy{
+		u32 *_ioreg;
+		struct{
+			u8 _ch,_buf[21],_cw,_cr;
+
+			union{
+				struct{
+					unsigned int _tx:1;
+					unsigned int _rx:1;
+					unsigned int _tx1:1;
+					unsigned int a:4;
+					unsigned int _ack:1;
+				};
+				u32 _status;
+				u64 _status64;
+			};
+		};
+
 		struct __card{
-			u32 *_io_regs;
+			u32 *_ioreg;
 			u8 *_buf;
 
 			union{
@@ -54,7 +81,7 @@ protected:
 				u32 _status;
 			};
 			__card(){_buf=NULL;};
-			virtual ~__card(){if(_buf) delete []_buf;_buf=NULL;};
+			~__card(){if(_buf) delete []_buf;_buf=NULL;};
 
 			int _reset();
 			int _write(u32,u32);
@@ -66,34 +93,17 @@ protected:
 		struct{
 			union{
 				u8 _buf[0x22];
-#pragma pack(push)
-#pragma pack(1)
+#pragma pack(push,1)
 				struct{
 					u8 _state;
 					u8 _id;
 					u8 _type;
 					u16 _buttons;
 				};
-#pragma pop()
+#pragma pack(pop)
 			};
 		} _pads[2];
 
-		u32 *_io_regs;
-		struct{
-			u8 _ch,_buf[21],_cw,_cr;
-
-			union{
-				struct{
-					unsigned int _tx:1;
-					unsigned int _rx:1;
-					unsigned int _tx1:1;
-					unsigned int _0:4;
-					unsigned int _ack:1;
-				};
-				u32 _status;
-				u64 _status64;
-			};
-		};
 		int _reset();
 		int _write(u32,u32);
 		int _read(u32,u32 *);
@@ -117,7 +127,7 @@ protected:
 				unsigned int _idx:2;
 			};
 		};
-		u32 *_io_regs,_elapsed,_step;
+		u32 *_ioreg,_elapsed,_step;
 		u16 _counter;
 		u8 *_mem;
 
@@ -132,7 +142,7 @@ protected:
 	} _timers[3];
 
 	struct __dma : ICpuTimerObj{
-		u32 *_io_regs,_src,_dst,_count;
+		u32 *_ioreg,_src,_dst,_count;
 		u8 *_mem;
 		int _inc;
 
@@ -142,18 +152,18 @@ protected:
 			struct{
 				unsigned int _dir:1;
 				unsigned int _step:1;
-				unsigned int _0:6;
+				unsigned int a:6;
 				unsigned int _chopping:1;
 				unsigned int _sync:2;
-				unsigned int __0:5;
+				unsigned int b:5;
 				unsigned int _dma_win:3;
 				unsigned int _nu:1;
 				unsigned int _cpu_win:3;
 				unsigned int __nu:1;
 				unsigned int _start:1;
-				unsigned int ___0:3;
+				unsigned int c:3;
 				unsigned int _enabled:1;
-				unsigned int ____0:3;
+				unsigned int d:3;
 				unsigned int _idx:3;
 				unsigned int _state:2;
 			};
@@ -171,7 +181,6 @@ protected:
 		virtual int Run(u8 *,int,void *);
 		virtual int Query(u32,void *){return -1;};
 
-		friend class PS1DEV;
 		friend class PS1M;
 	} __dmas[2];
 
@@ -254,7 +263,7 @@ protected:
 		int init(int,void *,void *);
 		int write(u32,u32,PS1M &);
 		int read(u32,u32 *);
-		int Run(u8 *mem,int,void *);
+		virtual int Run(u8 *mem,int,void *);
 		virtual int Query(u32,void *);
 		int _load(IGame *);
 		int update(u32);
@@ -293,45 +302,25 @@ protected:
 			REG_ISTAT
 		};
 
-		protected:
+		//protected:
 			int _execCommand(int);
 			int _do_report(int);
 			u8 *_buffer,*_params;
-			u32 *_io_regs,_track;
+			u32 *_ioreg,_track;
 			u64 _pos;
 
-#pragma pack(push)
-#pragma pack(1)
+#pragma pack(push,1)
 		struct __subq{
 			unsigned char _track;
 			unsigned char _index;
 			unsigned char _rel[3];
 			unsigned char _abs[3];
 		} *_subq;
-#pragma pop()
+#pragma pack(pop)
 	} _cdrom;
-
-	struct __mdec _mdec;
-	struct __gte GTE;
-	struct __CP0{
-		u32 _regs[32];
-		enum{
-			SR=12,
-			CAUSE,
-			EPC,
-			PRID
-		};
-		int _reset();
-		int _rfe(u32 *);
-	} CP0;
 
 	struct __dma *_dmas[7]={&_mdec_dma[0],&_mdec_dma[1],&_gpu_dma,&__dmas[0],&_spu_dma,&__dmas[1],&_otc_dma};
 
-	virtual int _enterIRQ(int n,u32 pc=0);
-public:
-	virtual int do_dma(struct __dma *);
-
-	friend class PS1M;
 };
 
 };

@@ -40,7 +40,7 @@ int __mdec::read(u32 a,u32 *p,PS1DEV &g){
 			*p=_out.p[_out.pr++];
 			if(_out.end <= 4){
 				_out.end=0;
-				if(_decode((u16 *)&_fifo._data[1])) {
+				if(_decode(&_fifo._data[1])) {
 					_dof=1;
 				//	if(_dma0)
 					//	g.do_sync(0x0101);
@@ -113,7 +113,7 @@ int __mdec::write(u32 r,u32 v,PS1DEV &g){
 							//printf("mdec %08x %08x %x %x %x\n",_out.size,_fifo._command,_dof,_dma1,_dma0);
 							_out.pr=_out.end=_out.pw=0;
 							_out.current=0;
-							_decode((u16*)&_fifo._data[1]);
+							_decode(&_fifo._data[1]);
 							_dof=0;
 							_dor=_dma1;
 							//res=0x30002;
@@ -276,60 +276,58 @@ void __mdec::_yuv_mono8(s32 *in,s32 *out){
 	}
 }
 
-int __mdec::_decode(u16 *p){
+int __mdec::_decode(u32 *p){
 	int *blk,res;
 	u32 n,u;
 
 	res=-1;
-	blk=(int *)&_tmp[768];
+	blk=(int *)&_tmp[1024];
 
 	switch(_cdod){
 		case 0://4bits
 			n=_unrle((u16 *)p,(u16 *)blk,_iqy);
 			_idct((s16 *)blk);
 			_yuv_mono4((s32 *)blk,(s32 *)_out.p);
-			printf("mdec mono4\n");
 		break;
 		case 1://8bits
 			n=_unrle((u16 *)p,(u16 *)blk,_iqy);
 			_idct((s16 *)blk);
 			_yuv_mono8((s32 *)blk,(s32 *)_out.p);
-			printf("mdec mono8\n");
 		break;
 		case 3:{
 			if((u=_out.current) >= _out.size)
 				goto A;
 			n=_unrle((u16 *)&p[u],(u16 *)_cr,_iquv);
 			_idct((s16 *)_cr);
-			u+=n;
+			u+=n/2;
 
 			n=_unrle((u16 *)&p[u],(u16 *)_cb,_iquv);
 			_idct((s16 *)_cb);
-			u+=n;
+			u+=n/2;
 
 			n=_unrle((u16 *)&p[u],(u16 *)blk,_iqy);
 			_idct((s16 *)blk);
 			_yuv_rgb(0,0,(s32 *)blk,(s32 *)_tmp,_cb,_cr);
-			u+=n;
+			u+=n/2;
 
 			n=_unrle((u16 *)&p[u],(u16 *)blk,_iqy);
 			_idct((s16 *)blk);
 			_yuv_rgb(8,0,(s32 *)blk,(s32 *)_tmp,_cb,_cr);
-			u+=n;
+			u+=n/2;
 
 			n=_unrle((u16 *)&p[u],(u16 *)blk,_iqy);
 			_idct((s16 *)blk);
 			_yuv_rgb(0,8,(s32 *)blk,(s32 *)_tmp,_cb,_cr);
-			u+=n;
+			u+=n/2;
 
 			n=_unrle((u16 *)&p[u],(u16 *)blk,_iqy);
 			_idct((s16 *)blk);
 			_yuv_rgb(8,8,(s32 *)blk,(s32 *)_tmp,_cb,_cr);
 			_out.end = 64*2*4;
-			u+=n;
+			u+=n/2;
 
 			_out.current=u;
-			u16 *p=(u16 *)(((u8 *)_out.p) +_out.pw);
+			u16 *pp=(u16 *)(((u8 *)_out.p) +_out.pw);
 			for(int i=0;i<256;i++){
 				int R,G,B;
 
@@ -345,7 +343,7 @@ int __mdec::_decode(u16 *p){
 			//	R=0;
 			//	G=31;
 			//	B=0;
-				*p++=RGB555(R,G,B);
+				*pp++=RGB555(R,G,B);
 			}
 
 			if((_out.pw += 512) >= 3072)
@@ -357,39 +355,35 @@ int __mdec::_decode(u16 *p){
 				goto A;
 			n=_unrle((u16 *)&p[u],(u16 *)_cr,_iquv);
 			_idct((s16 *)_cr);
-			u+=n;
+			u+=n/2;
 
 			n=_unrle((u16 *)&p[u],(u16 *)_cb,_iquv);
 			_idct((s16 *)_cb);
-			u+=n;
+			u+=n/2;
 
 			n=_unrle((u16 *)&p[u],(u16 *)blk,_iqy);
 			_idct((s16 *)blk);
 			_yuv_rgb(0,0,(s32 *)blk,(s32 *)_tmp,_cb,_cr);
-		//	_out.end=64*3;
-
-			u+=n;
+			u+=n/2;
 
 			n=_unrle((u16 *)&p[u],(u16 *)blk,_iqy);
 			_idct((s16 *)blk);
 			_yuv_rgb(8,0,(s32 *)blk,(s32 *)_tmp,_cb,_cr);
-		//	_out.end += 64*3;
-			u+=n;
+			u+=n/2;
 
 			n=_unrle((u16 *)&p[u],(u16 *)blk,_iqy);
 			_idct((s16 *)blk);
 			_yuv_rgb(0,8,(s32 *)blk,(s32 *)_tmp,_cb,_cr);
-		//_out.end += 64*3;
-			u+=n;
+			u+=n/2;
 
 			n=_unrle((u16 *)&p[u],(u16 *)blk,_iqy);
 			_idct((s16 *)blk);
 			_yuv_rgb(8,8,(s32 *)blk,(s32 *)_tmp,_cb,_cr);
 			_out.end = 64*3*4;
-			u+=n;
+			u+=n/2;
 
 			_out.current=u;
-			u8 *p=((u8 *)_out.p) +_out.pw;
+			u8 *pp=((u8 *)_out.p) +_out.pw;
 			for(int i=0;i<256;i++){
 				int R,G,B;
 
@@ -398,9 +392,9 @@ int __mdec::_decode(u16 *p){
 				G=(u8)SR(c,8);
 				B=(u8)SR(c,16);
 //G=B=R=0;G=255;
-				*p++=R^0x80;
-				*p++=G^0x80;
-				*p++=B^0x80;
+				*pp++=R^0x80;
+				*pp++=G^0x80;
+				*pp++=B^0x80;
 			}
 			if((_out.pw += 64*4*3) >= 3072)
 				_out.pw -= 3072;
@@ -426,7 +420,7 @@ int __mdec::reset(){
 }
 
 int __mdec::init(int n,void *m,void *mm){
-	_io_regs=(u32 *)m;
+	_ioreg=(u32 *)m;
 	_mem=(u8 *)mm;
 //	_idx=n;
 	if(!(_izz = (u8 *)new u8[5000* sizeof(u32)]))
@@ -437,7 +431,7 @@ int __mdec::init(int n,void *m,void *mm){
 	_in=(u32 *)&_iscale[64];
 	_out.p=&_in[768];
 	_tmp=&_out.p[768];
-	_cb=(s16 *)&_tmp[768*2];
+	_cb=(s16 *)&_tmp[1024*2];
 	_cr=&_cb[768];
 	for(int i=0;i<64;i++)
 		_izz[_zz[i]]=i;

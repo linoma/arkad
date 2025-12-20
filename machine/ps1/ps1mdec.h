@@ -9,8 +9,8 @@ namespace ps1 {
 
 class PS1DEV;
 
-struct __mdec : ICpuTimerObj{
-	u32 *_io_regs,*_in,*_tmp;
+class __mdec : ICpuTimerObj{
+	u32 *_ioreg,*_in,*_tmp;
 	u8 *_mem;
 	u8 *_iqy,*_iquv,*_izz;
 	s16 *_iscale,*_cr,*_cb;
@@ -46,8 +46,9 @@ struct __mdec : ICpuTimerObj{
 			unsigned int _reset:1;
 		};
 	};
+	public:
 	__mdec();
-	~__mdec();
+	virtual ~__mdec();
 	int reset();
 	int reset_decoder();
 	int init(int,void *,void *);
@@ -57,12 +58,12 @@ struct __mdec : ICpuTimerObj{
 	virtual int Query(u32,void *){return -1;};
 	protected:
 
-	u32 _unrle(u16 *in,u16 *out,u8 *iq);
+	u32  _unrle(u16 *in,u16 *out,u8 *iq);
 	void _idct(s16 *);
 	void _yuv_rgb(int,int,s32 *,s32 *,s16 *,s16 *);
 	void _yuv_mono4(s32 *,s32 *);
 	void _yuv_mono8(s32 *,s32 *);
-	int _decode(u16 *);
+	int _decode(u32 *);
 
 	struct __command<u32> _fifo;
 

@@ -27,7 +27,6 @@ tehkanwc::~tehkanwc(){
 
 int tehkanwc::Load(IGame *pg,char *path){
 	int res;
-	u32 u;
 
 	if(!pg || pg->Open(path,0))
 		return -1;
@@ -40,7 +39,6 @@ int tehkanwc::Load(IGame *pg,char *path){
 	_cpu.Load(&_memory[0xc000]);
 	tehkanwcSpu::Load(&_memory[0x14000]);
 	res=0;
-A:
 	return res;
 }
 
@@ -81,7 +79,7 @@ int tehkanwc::Reset(){
 int tehkanwc::Init(){
 	if(Machine::Init())
 		return -1;
-	if(Z80Cpu::Init(&_memory[MB(5)]))
+	if(Z80Cpu::Init(&_memory[MB(5)],0,0))
 		return -2;
 
 	for(int i =0;i<4;i++){
@@ -92,7 +90,7 @@ int tehkanwc::Init(){
 	SetMemIO_cb(0xf806,(CoreMACallback)&tehkanwc::fn_mem_w,(CoreMACallback)&tehkanwc::fn_mem_r);
 	SetMemIO_cb(0xf820,(CoreMACallback)&tehkanwc::fn_mem_w,(CoreMACallback)&tehkanwc::fn_mem_r);
 
-	if(_cpu.Init(&_memory[MB(10)]))
+	if(_cpu.Init(&_memory[MB(10)],0,0))
 		return -3;
 	_cpu._cpu=this;
 	_cpu.Query(ICORE_QUERY_SET_MACHINE,(IObject *)(ICore *)this);
@@ -118,7 +116,7 @@ int tehkanwc::Init(){
 	_cpu.SetMemIO_cb(0xda00,(CoreMACallback)&tehkanwc::fn_mem_w);
 	_cpu._ipc=_mem;
 	_ipc=&_memory[MB(10)];
-	_cpu.Stop();
+	_cpu.Sleep();
 	AddTimerObj((tehkanwcGpu *)this,381);
 	return 0;
 }
@@ -274,13 +272,12 @@ int tehkanwc::Query(u32 what,void *pv){
 			return -1;
 		case ICORE_QUERY_ADDRESS_INFO:
 			{
-				u32 adr,*pp,*p = (u32 *)pv;
-				adr =*p++;
-				pp=(u32 *)*((u64 *)p);
+				LPMEMORYACCESS d =(LPMEMORYACCESS)pv;
+				u32 adr=d->addr;
 				switch(SR(adr,24)){
 					case 0:
-						pp[0]=0;
-						pp[1]=KB(64);
+						d->addr=0;
+						d->size=KB(64);
 						break;
 					default:
 						return -2;
@@ -298,22 +295,6 @@ int tehkanwc::Query(u32 what,void *pv){
 					return -2;
 				*((LPDEBUGGERPAGE *)pv)=p;
 				memset(p,0,9*sizeof(DEBUGGERPAGE));
-				p->size=sizeof(DEBUGGERPAGE);
-				strcpy(p->title,"Registers");
-				strcpy(p->name,"3100");
-				p->type=1;
-				p->popup=1;
-
-				p++;
-				p->size=sizeof(DEBUGGERPAGE);
-				strcpy(p->title,"Memory");
-				strcpy(p->name,"3102");
-				p->type=2;
-				p->editable=1;
-				p->popup=1;
-				p->clickable=1;
-
-				p++;
 				p->size=sizeof(DEBUGGERPAGE);
 				strcpy(p->title,"IO Ports");
 				strcpy(p->name,"3103");
@@ -339,14 +320,6 @@ int tehkanwc::Query(u32 what,void *pv){
 				p->editable=1;
 				p->popup=0;
 				p->clickable=1;
-
-				p++;
-				memset(p,0,sizeof(DEBUGGERPAGE));
-				p->size=sizeof(DEBUGGERPAGE);
-				strcpy(p->title,"Call Stack");
-				strcpy(p->name,"3106");
-				p->type=1;
-				p->popup=1;
 			}
 			return 0;
 		default:
@@ -366,11 +339,11 @@ int tehkanwc::OnEvent(u32 ev,...){
 			return 0;
 		case ME_MOVEWINDOW:
 			{
-				int x,y,w,h;
+				int w,h;
 
 				va_start(arg, ev);
-				x=va_arg(arg,int);
-				y=va_arg(arg,int);
+				w=va_arg(arg,int);
+				w=va_arg(arg,int);
 				w=va_arg(arg,int);
 				h=va_arg(arg,int);
 				CreateBitmap(w,h);
@@ -382,11 +355,11 @@ int tehkanwc::OnEvent(u32 ev,...){
 		case ME_REDRAW:
 			tehkanwcGpu::Update();
 			Draw();
-			CALLEE(Machine::OnEvent,ev,return,arg);
+			CALLEE(Machine::OnEventI,ev,return,arg);
 		case ME_KEYUP:{
 				int key;
 
-				CALLEE(Machine::OnEvent,ev,key=,arg);
+				CALLEE(Machine::OnEventI,ev,key=,arg);
 				if(key < 8)
 					_ioreg[0] |= SL(1,key);
 				else
@@ -397,7 +370,7 @@ int tehkanwc::OnEvent(u32 ev,...){
 			{
 				int key;
 
-				CALLEE(Machine::OnEvent,ev,key=,arg);
+				CALLEE(Machine::OnEventI,ev,key=,arg);
 				if(key < 8)
 					_ioreg[0] &= ~SL(1,key);
 				else
@@ -447,9 +420,7 @@ int tehkanwc::OnEvent(u32 ev,...){
 
 int tehkanwc::Dump(char **pr){
 	int res,i;
-	char *c,*cc,*p,*pp;
-	u8 *mem;
-	u32 adr;
+	char *c,*cc,*p;
 	DEBUGGERDUMPINFO di;
 
 	_dump(pr,&di);
@@ -468,7 +439,7 @@ int tehkanwc::Dump(char **pr){
 	p+=4;
 	res+=9;
 	((CCore *)cpu)->_dumpRegisters(p);
-#ifdef _DEvELOP
+#ifdef _DEVELOP
 	sprintf(cc,"L:%d C:%u",__line,__cycles);
 	strcat(p,cc);
 #endif
@@ -482,9 +453,6 @@ int tehkanwc::Dump(char **pr){
 	p+=4;
 	res+=9;
 	*((u64 *)p)=0;
-
-	adr=di._dumpAddress;
-	pp=&cc[900];
 
 	//mem=_mem+adr;
 	((CCore *)cpu)->_dumpMemory(p,NULL,&di);
@@ -572,7 +540,7 @@ s32 tehkanwc::fn_mem_w(u32 a,pvoid mem,pvoid data,u32){
 				//EnterDebugMode();
 			}
 			else
-				_cpu.Stop();
+				_cpu.Sleep();
 			return 0;
 		case 0x50://audio reset
 		//	printf("write mem %x %x %x\n",_pc,a,*((u8 *)data));

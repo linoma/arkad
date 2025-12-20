@@ -1,4 +1,5 @@
 #include "ps1m.h"
+#include "game.h"
 
 namespace ps1{
 
@@ -7,7 +8,6 @@ namespace ps1{
 	if (ev == 0xf) ev = 0x5; \
 	ev*= 32; \
 	ev+= REG_(REGI_A0)&0x1f;
-
 
 #define GetSpec() \
 	spec = 0; \
@@ -33,7 +33,7 @@ PS1BIOS::PS1BIOS() : PS1DEV(){
 PS1BIOS::~PS1BIOS(){
 }
 
-int PS1BIOS::Init(PS1M &g){
+int PS1BIOS::Init(){
 	Event = (EvCB *)&_mem[0x1000];
 	HwEV = Event;
 	EvEV = Event + 32;
@@ -41,7 +41,7 @@ int PS1BIOS::Init(PS1M &g){
 	UeEV = Event + 32 * 3;
 	SwEV = Event + 32 * 4;
 	ThEV = Event + 32 * 5;
-	return PS1DEV::Init(g);
+	return PS1DEV::Init();
 }
 
 int PS1BIOS::Reset(){
@@ -59,7 +59,7 @@ int PS1BIOS::Reset(){
 	return 0;
 }
 
-int PS1BIOS::_free(u32 a){
+int PS1BIOS::_free_mem(u32 a){
 	u8 *p;
 
 	a=(a & ~3)-4;
@@ -70,7 +70,7 @@ int PS1BIOS::_free(u32 a){
 	return 0;
 }
 
-u32 PS1BIOS::_malloc(u32 f,u32 size){
+u32 PS1BIOS::_alloc_mem(u32 f,u32 size){
 	u32 a,sz;
 
 //printf("malloc %x %x %x %x\t",f,size,_heap.addr,_heap.end);
@@ -84,7 +84,7 @@ u32 PS1BIOS::_malloc(u32 f,u32 size){
 		u32 attr = *((u32 *)p);
 
 	//	printf(" %x:%x ",a,attr);
-		fflush(stdout);
+		//fflush(stdout);
 		if(!(attr & 1) || a>_heap.last){
 			if(f & 1)
 				memset(p+4,0,size);
@@ -109,6 +109,7 @@ Z:
 		else Event[ev][spec].status = EvStALREADY;\
 	}\
 }
+
 
 int PS1BIOS::ExecA0(u32 a){
 #ifdef _DEVELOP
@@ -237,13 +238,13 @@ int PS1BIOS::ExecA0(u32 a){
 			*(u32 *)&_mem[0x9010] = SWAP32(REG_(REGI_A0));
 		break;
 		case 0x33://malloc
-			REG_(REGI_V0)=_malloc(0,REG_(REGI_A0));
+			REG_(REGI_V0)=_alloc_mem(0,REG_(REGI_A0));
 		break;
 		case 0x34://free
-			_free(REG_(REGI_A0));
+			_free_mem(REG_(REGI_A0));
 		break;
 		case 0x37://calloc
-			REG_(REGI_V0)=_malloc(1,REG_(REGI_A0)*REG_(REGI_A0+1));
+			REG_(REGI_V0)=_alloc_mem(1,REG_(REGI_A0)*REG_(REGI_A0+1));
 		break;
 		case 0x39:{//InitHeap(void *block , int n)
 			u32 size;
@@ -288,7 +289,7 @@ int PS1BIOS::ExecA0(u32 a){
 		break;
 		case 0x3f:{//printf
 			u32 a,n,i,u,sp[4];
-			char c[1024],cc[1024],s[1024];
+			char c[1024],cc[1024];
 
 			EnterDebugMode(DEBUG_BREAK_OPCODE);
 			for(i=0;i<4;i++)
@@ -606,10 +607,10 @@ int PS1BIOS::ExecB0(u32 a){
 		case 0x42:{//frstfile
 			u8 *p;
 			u64 d[10];
-			struct DIRENTRY *dir;
+			struct __direntry *dir;
 
 			RMAP_(REG_(REGI_A0+1),p,NOARG);
-			dir= (struct DIRENTRY *)p;
+			dir= (struct __direntry *)p;
 			RMAP_(REG_(REGI_A0),p,NOARG);
 		//	printf("ff %s\n",p);
 			if(!strncmp((char *)p,"bu00",4)){
@@ -635,10 +636,10 @@ int PS1BIOS::ExecB0(u32 a){
 		break;
 		case 0x43:{//nextfile
 			u8 *p;
-			struct DIRENTRY *dir;
+			struct __direntry *dir;
 
 			RMAP_(REG_(REGI_A0),p,NOARG);
-			dir= (struct DIRENTRY *)p;
+			dir= (struct __direntry *)p;
 			//dir->size = 8192;
 			REG_(REGI_V0)=0;;//REG_(REGI_A0);
 		}
@@ -749,7 +750,7 @@ int PS1BIOS::ReturnFromCall(){
 
 int PS1BIOS::__calls::_addCall(u32 a,u32 pc,u32 *r){
 	cb.push_back({a,pc,r});
-	printf("addcall\n");
+//	printf("addcall\n");
 	return 0;
 }
 

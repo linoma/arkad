@@ -1,8 +1,4 @@
 #include "popeye.h"
-#include <map>
-#include <vector>
-#include <string>
-#include <array>
 
 namespace POPEYE{
 
@@ -10,16 +6,27 @@ namespace POPEYE{
 
 #define __Z80F(a,...)
 
-static u8 _key_config[]={2,3,1,0,4,8,9,10,11,12,13,14,15,16,17,18};
+static u8 _key_config[]={2,3,1,0,4,8,9,10,11,12,13,14,15,0,0,0,0,0,0,0,0,0,0};
 
 #define PORT_P1 		0
 #define PORT_P2 		1
 #define PORT_SYSTEM 	2
-
 #define PORT_DSW0		3
 #define PORT_DSW1		4
 
-static u32 bitswap(int n,int val...){
+PopeyeM::PopeyeM() : Machine(MB(30)),Z80Cpu(),PopeyeSpu(),PopeyeGpu() {
+	_keys=_key_config;
+	Z80Cpu::_freq=MHZ(4);
+}
+
+PopeyeM::~PopeyeM(){
+}
+
+int PopeyeM::Draw(HDC cr){
+	return PopeyeGpu::Draw(cr);
+}
+
+u32 PopeyeM::bitswap(int n,int val,...){
 	u8 p[32];
 	va_list arg;
 	u32 res;
@@ -42,26 +49,14 @@ static u32 bitswap(int n,int val...){
 	return res;
 }
 
-Popeye::Popeye() : Machine(MB(30)),Z80Cpu(),PopeyeSpu(),PopeyeGpu(){
-	_keys=_key_config;
-	Z80Cpu::_freq=MHZ(4);
-	//_dev.prot.val[0]=0;
-	//_dev.prot.val[1]=0;
-	//cout <<  sizeof(struct __a) << endl;
-}
-
-Popeye::~Popeye(){
-}
-
-int Popeye::Load(IGame *pg,char *path){
+int PopeyeM::Load(IGame *pg,char *path){
 	int res;
 	u32 u;
 
 	if(!pg || pg->Open(path,0))
 		return -1;
 	Reset();
-	pg->Read(_memory,MB(1),&u);
-	//printf("load %u\n",u);
+	pg->Read(_memory,MB(0.1),&u);
 	res--;
 	for (int i = 0; i < 0x8000; i++){
 		int  n =  bitswap(16,i,15, 14, 13, 12, 11, 10, 8, 7, 6, 3, 9, 5, 4, 2, 1, 0);
@@ -72,7 +67,7 @@ int Popeye::Load(IGame *pg,char *path){
 	return res;
 }
 
-int Popeye::Destroy(){
+int PopeyeM::Destroy(){
 	Z80Cpu::Destroy();
 	Machine::Destroy();
 	PopeyeSpu::Destroy();
@@ -80,12 +75,12 @@ int Popeye::Destroy(){
 	return 0;
 }
 
-int Popeye::Reset(){
-	Z80Cpu::Reset();
+int PopeyeM::Reset(){
 	Machine::Reset();
-	PopeyeSpu::Reset();
+	Z80Cpu::Reset();
 	PopeyeGpu::Reset();
-	memset(&_dev,0,sizeof(_dev));
+	PopeyeSpu::Reset();
+	_dev.reset();
 	//_dev._ports[0]=0xff;
 	//_dev._ports[2]=0xbf;
 	_dev._ports[PORT_DSW0]=0x4f;
@@ -93,35 +88,48 @@ int Popeye::Reset(){
 	return 0;
 }
 
-int Popeye::Init(){
+int PopeyeM::__dev::reset(){
+	nmi=0;
+	_vblank=0;
+	wd.counter=0;
+	wd.enabled=0;
+	prot.shift=0;
+	memset(_ports,0,sizeof(_ports));
+	_ports[PORT_DSW0]=0x4f;
+	_ports[PORT_DSW1]=0x3d;
+	return 0;
+}
+
+int PopeyeM::Init(){
 	if(Machine::Init())
 		return -1;
-	if(Z80Cpu::Init(&_memory[MB(5)]))
+	if(Z80Cpu::Init(&_memory[MB(2)],0,0))
 		return -2;
 	for(int i =0;i<4;i++)
-		SetIO_cb(i,(CoreMACallback)&Popeye::fn_port_w,(CoreMACallback)&Popeye::fn_port_r);
+		SetIO_cb(i,(CoreMACallback)&PopeyeM::fn_port_w,(CoreMACallback)&PopeyeM::fn_port_r);
 
-	SetMemIO_cb(0xe000,(CoreMACallback)&Popeye::fn_mem_w,(CoreMACallback)&Popeye::fn_mem_r);
-	SetMemIO_cb(0xe001,(CoreMACallback)&Popeye::fn_mem_w,(CoreMACallback)&Popeye::fn_mem_r);
+	SetMemIO_cb(0xe000,(CoreMACallback)&PopeyeM::fn_mem_w,(CoreMACallback)&PopeyeM::fn_mem_r);
+	SetMemIO_cb(0xe001,(CoreMACallback)&PopeyeM::fn_mem_w,(CoreMACallback)&PopeyeM::fn_mem_r);
 //	SetMemIO_cb(0x8800,(CoreMACallback)&Popeye::fn_mem_w);
 	//for(int i =0;i<0x2000;i++)
 		//SetMemIO_cb(0xc000+i,(CoreMACallback)&Popeye::fn_bgmem_w);
-	if(PopeyeSpu::Init(*this))
-		return -4;
-	_ioreg=_dev._ports;
+	_ioreg=(u8 *)_dev._ports;
 	_gpu_regs=_ioreg;
 	_gpu_mem=&_mem[0xa000];
 	_pal_ram=&_mem[0xa400];
 	_sprite_ram=&_mem[0x8c00];
 	_char_ram=&_memory[0x8000];
+	//printf("init5\n");
 	if(PopeyeGpu::Init())
 		return -5;
+	if(PopeyeSpu::Init())
+		return -4;
 	_setBlankArea(448,480,0,-1,60,CCore::_freq);
 	AddTimerObj((PopeyeGpu *)this,_scanline_cycles);
 	return 0;
 }
 
-int Popeye::LoadSettings(void * &v){
+int PopeyeM::LoadSettings(void * &v){
 	map<string,string> &m=(map<string,string> &)v;
 	Machine::LoadSettings(v);
 	m["width"]=to_string(_width);
@@ -131,7 +139,7 @@ int Popeye::LoadSettings(void * &v){
 	return 0;
 }
 
-int Popeye::Exec(u32 status){
+int PopeyeM::Exec(u32 status){
 	int ret;
 
 	ret=Z80Cpu::Exec(status);
@@ -142,15 +150,13 @@ int Popeye::Exec(u32 status){
 			ret *= -1;
 			goto A;
 	}
-//	_mem[0x8800]=3;//infinite live
-	//_ioreg[7]=__data;
 	EXECTIMEROBJLOOP(ret,OnEvent(i__,0);,_ioreg);
 	ret=0;
 A:
 	MACHINE_ONEXITEXEC(status,ret);
 }
 
-int Popeye::OnEvent(u32 ev,...){
+int PopeyeM::OnEvent(u32 ev,...){
 	va_list arg;
 
 	switch(ev){
@@ -176,26 +182,26 @@ int Popeye::OnEvent(u32 ev,...){
 		case ME_REDRAW:
 			PopeyeGpu::Update();
 			Draw();
-			CALLVA(Machine::OnEvent,ev,ev);
+			CALLVA(Machine::OnEventI,ev,ev);
 			return ev;
 		case ME_KEYDOWN:{
 				int key;
 
-				CALLEE(Machine::OnEvent,ev,key=,arg);
+				CALLEE(Machine::OnEventI,ev,key=,arg);
 				if(key < 8)
 					_dev._ports[PORT_P1] |= SL(1,key);
 				else
-					_dev._ports[2] |= SL(1,key-8);
+					_dev._ports[PORT_SYSTEM] |= SL(1,key-8);
 			}
 			return 0;
 		case ME_KEYUP:{
 				int key;
 
-				CALLEE(Machine::OnEvent,ev,key=,arg);
+				CALLEE(Machine::OnEventI,ev,key=,arg);
 				if(key < 8)
 					_dev._ports[PORT_P1] &= ~SL(1,key);
 				else
-					_dev._ports[2] &= ~SL(1,key-8);
+					_dev._ports[PORT_SYSTEM] &= ~SL(1,key-8);
 			}
 			return 0;
 		case 0:{
@@ -247,7 +253,7 @@ int Popeye::OnEvent(u32 ev,...){
 	return 0;
 }
 
-int Popeye::Dump(char **pr){
+int PopeyeM::Dump(char **pr){
 	int res,i;
 	char *c,*cc,*p;
 	//u8 *mem;
@@ -344,7 +350,7 @@ int Popeye::Dump(char **pr){
 	return res;
 }
 
-int Popeye::Query(u32 what,void *pv){
+int PopeyeM::Query(u32 what,void *pv){
 	switch(what){
 		case ICORE_QUERY_DBG_LAYER:{
 			int res;
@@ -461,15 +467,13 @@ int Popeye::Query(u32 what,void *pv){
 			}
 		}
 			return -1;
-		case ICORE_QUERY_ADDRESS_INFO:
-			{
-				u32 adr,*pp,*p = (u32 *)pv;
-				adr =*p++;
-				pp=(u32 *)*((u64 *)p);
+		case ICORE_QUERY_ADDRESS_INFO:{
+				LPMEMORYACCESS d =(LPMEMORYACCESS)pv;
+				u32 adr=d->addr;
 				switch(SR(adr,24)){
 					case 0:
-						pp[0]=0;
-						pp[1]=KB(64);
+						d->addr=0;
+						d->size=KB(64);
 						break;
 					default:
 						return -2;
@@ -488,22 +492,6 @@ int Popeye::Query(u32 what,void *pv){
 				*((LPDEBUGGERPAGE *)pv)=p;
 				memset(p,0,9*sizeof(DEBUGGERPAGE));
 				p->size=sizeof(DEBUGGERPAGE);
-				strcpy(p->title,"Registers");
-				strcpy(p->name,"3100");
-				p->type=1;
-				p->popup=1;
-
-				p++;
-				p->size=sizeof(DEBUGGERPAGE);
-				strcpy(p->title,"Memory");
-				strcpy(p->name,"3102");
-				p->type=2;
-				p->editable=1;
-				p->popup=1;
-				p->clickable=1;
-
-				p++;
-				p->size=sizeof(DEBUGGERPAGE);
 				strcpy(p->title,"IO Ports");
 				strcpy(p->name,"3103");
 				p->type=1;
@@ -520,13 +508,6 @@ int Popeye::Query(u32 what,void *pv){
 				p->popup=0;
 				p->clickable=1;
 
-				p++;
-				memset(p,0,sizeof(DEBUGGERPAGE));
-				p->size=sizeof(DEBUGGERPAGE);
-				strcpy(p->title,"Call Stack");
-				strcpy(p->name,"3106");
-				p->type=1;
-				p->popup=1;
 			}
 			return 0;
 		default:
@@ -535,7 +516,7 @@ int Popeye::Query(u32 what,void *pv){
 	return -1;
 }
 
-int Popeye::OnChangeIRQ(u32 a,u32 *){
+int PopeyeM::OnChangeIRQ(u32 a,u32 *){
 	u32 nmi=a&1;
 //	printf("reg_i %x\n",a);
 	if(nmi != _dev.nmi){
@@ -545,13 +526,13 @@ int Popeye::OnChangeIRQ(u32 a,u32 *){
 	return -1;
 }
 
-s32 Popeye::fn_port_r(u32 a,pvoid port,pvoid data,u32){
+s32 PopeyeM::fn_port_r(u32 a,pvoid port,pvoid data,u32){
 	switch((u8)a){
 		case PORT_SYSTEM:
-		if(_dev._vblank)
-			_dev._ports[PORT_SYSTEM] &= ~0x10;
-		else
-			_dev._ports[PORT_SYSTEM] |= 0x10;
+			if(_dev._vblank)
+				_dev._ports[PORT_SYSTEM] &= ~0x10;
+			else
+				_dev._ports[PORT_SYSTEM] |= 0x10;
 		//break;
 		case PORT_P1:
 		case PORT_P2:
@@ -577,7 +558,7 @@ s32 Popeye::fn_port_r(u32 a,pvoid port,pvoid data,u32){
 	return 1;
 }
 
-s32 Popeye::fn_port_w(u32 a,pvoid port,pvoid data,u32){
+s32 PopeyeM::fn_port_w(u32 a,pvoid port,pvoid data,u32){
 	switch(a){
 		default:
 		break;
@@ -591,7 +572,7 @@ s32 Popeye::fn_port_w(u32 a,pvoid port,pvoid data,u32){
 	return 0;
 }
 
-s32 Popeye::fn_mem_w(u32 a,pvoid mem,pvoid data,u32 f){
+s32 PopeyeM::fn_mem_w(u32 a,pvoid mem,pvoid data,u32 f){
 	//printf("%s %x\n",__FUNCTION__,a);
 	switch(a){
 		case 0xe000:
@@ -609,7 +590,7 @@ s32 Popeye::fn_mem_w(u32 a,pvoid mem,pvoid data,u32 f){
 	return 0;
 }
 
-s32 Popeye::fn_mem_r(u32 a,pvoid mem,pvoid data,u32 f){
+s32 PopeyeM::fn_mem_r(u32 a,pvoid mem,pvoid data,u32 f){
 	//printf("%s %x\n",__FUNCTION__,a);
 	switch(a){
 		case 0xe000:{
@@ -623,18 +604,18 @@ s32 Popeye::fn_mem_r(u32 a,pvoid mem,pvoid data,u32 f){
 	return 0;
 }
 
+#include "z80.cpp.inc"
+
 PopeyeGame::PopeyeGame() : FileGame(){
 	char c[][16]={"C-7A","C-7B","C-7C","C-7E","V-5N","V-1E","V-1F","V-1J","V-1K","PROM-CPU.4A","PROM-CPU.3A","PROM-CPU.5B",
 		"PROM-CPU.5A","PROM-VID.7J"};
 	_name="Popeye";
 	_machine="popeye";
 	for(int i =0;i<sizeof(c)/sizeof(c[0]);i++)
-		_files.push_back(__item(c[i]));
+		_files.push_back({c[i],0});
 }
 
 PopeyeGame::~PopeyeGame(){
 }
-
-#include "z80.cpp.inc"
 
 };

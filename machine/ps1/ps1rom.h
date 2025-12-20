@@ -29,8 +29,7 @@ typedef struct {
 
 class RomStream : public ISOStream{
 public:
-	RomStream();
-	RomStream(char *);
+	RomStream(char *p=NULL);
 	virtual ~RomStream();
 	virtual int Parse(IGame *,PS1EXE_HEADER *h=NULL);
 	virtual int _getInfo(u32 *,void **){return 0;};
@@ -51,13 +50,11 @@ public:
 protected:
 	int _type;
 	void *_header;
-private:
 };
 
 class PS1CUEROM : public RomStream{
 public:
-	PS1CUEROM();
-	PS1CUEROM(char *);
+	PS1CUEROM(char *p=NULL);
 	virtual ~PS1CUEROM();
 	virtual int Read(void *,u32,u32 *);
 	virtual int Parse(IGame *,PS1EXE_HEADER *h=NULL);
@@ -76,8 +73,7 @@ protected:
 
 class PS1ECMROM : public PS1CUEROM{
 public:
-	PS1ECMROM();
-	PS1ECMROM(char *);
+	PS1ECMROM(char *p=NULL);
 	virtual ~PS1ECMROM();
 	virtual int Parse(IGame *,PS1EXE_HEADER *h=NULL);
 };

@@ -1,8 +1,6 @@
 #include "cps3dev.h"
-#include "cps3.h"
 #include "cps3m.h"
 #include "game.h"
-
 
 namespace cps3{
 
@@ -106,6 +104,9 @@ void CPS3DEV::__dma::_reset(){
 	_dst=_src=0;
 }
 
+CPS3DEV::__dma::~__dma(){
+}
+
 void CPS3DEV::__dma::_init(void *){
 }
 
@@ -132,14 +133,12 @@ int CPS3DEV::__char_dma::_transfer(){
 		_src = SL(dat3,1);
 	//	printf("dmat %x %x %x\n",SR(dat1,20),_dst,_len);
 		switch(dat1 & 0xe00000){
-			case 0:
-			{
-				u32 d[5];
+			case 0:{
+				MEMORYACCESS d;
 
-			//	printf("dma 0 %x %x\n",_dst,_len);
-				d[0]=_src;
-				cpu->Query(IMACHINE_QUERY_MEMORY_ACCESS,d);
-				u8 *src=(u8 *)*((void **)&d[1]);
+				d.addr=_src;
+				cpu->Query(IMACHINE_QUERY_MEMORY_ACCESS,&d);
+				u8 *src=(u8 *)d.mem;
 				_src-=0x400000;
 
 				memcpy( (u8 *)_mem + _dst, src + (_src^1), _len );
@@ -172,19 +171,18 @@ void CPS3DEV::__char_dma::_transfer6bpp(){
 	u8 *src;
 
 	{
-		u32 d[5];
+		MEMORYACCESS d;
 
-		d[0]=_src;
-		cpu->Query(IMACHINE_QUERY_MEMORY_ACCESS,d);
-		src=(u8 *)*((void **)&d[1]);
+		d.addr=_src;
+		cpu->Query(IMACHINE_QUERY_MEMORY_ACCESS,&d);
+		src=(u8 *)d.mem;
 	}
 
-	_src-= 0x400000;
+	_src -= 0x400000;
 	_last_byte=0;
 
 	for(;_len;){
-		u8 data=src[_src^1];
-		_src++;
+		u8 data=src[_src++^1];
 		if(data & 0x80){
 			u8 v;
 
@@ -206,7 +204,7 @@ void CPS3DEV::__char_dma::_transfer6bpp(){
 				goto A;
 			_len -= length_processed;
 			_dst += length_processed;
-			if (_dst>0x7fffff)
+			if (_dst > 0x7fffff)
 				goto A;
 		}
 	}
@@ -220,11 +218,11 @@ void CPS3DEV::__char_dma::_transfer8bpp(){
 	u32 ds = _dst;
 
 	{
-		u32 d[5];
+		MEMORYACCESS d;
 
-		d[0]=_src;
-		cpu->Query(IMACHINE_QUERY_MEMORY_ACCESS,d);
-		px=(u8 *)*((void **)&d[1]);
+		d.addr=_src;
+		cpu->Query(IMACHINE_QUERY_MEMORY_ACCESS,&d);
+		px=(u8 *)d.mem;
 	}
 	_src-=0x400000;
 	_lastb=0xfffe;
@@ -258,15 +256,14 @@ void CPS3DEV::__char_dma::_transfer8bpp(){
 
 u32 CPS3DEV::__char_dma::_decode8bpp(u8 b,u32 dst){
  	if(_lastb==_lastb2) {
- 		int l,rle=(int)(u8)(b+1);
+ 		int rle=(int)(u8)(b+1);
 
- 		for(int i=0,l=0;i<rle;++i) {
-			((u8 *)_mem)[(dst&0x7fffff) ^3] = _lastb;
+ 		for(int i=0;i<rle;++i) {
+			((u8 *)_mem)[(dst&0x7fffff) ^ 3] = _lastb;
 			dst++;
- 			l++;
  		}
  		_lastb2=0xffff;
- 		return l;
+ 		return rle;
  	}
  	_lastb2=_lastb;
  	_lastb=b;
@@ -275,22 +272,22 @@ u32 CPS3DEV::__char_dma::_decode8bpp(u8 b,u32 dst){
 }
 
 u32 CPS3DEV::__char_dma::_decode6bpp(u8 v,u32 dst,u32 max_length){
-	dst &= 0x7fffff;
+	u32 tranfercount,rle,r;
 
+	dst &= 0x7fffff;
 	if(!(v&0x40)) {
-		((u8 *)_mem)[(dst & 0x7fffff) ^ 3] = v;
+		((u8 *)_mem)[dst ^ 3] = v;
 		_last_byte = v;
 		return 1;
 	}
-	u32 tranfercount = 0;
-	for (int r= (v & 0x3f)+1;r;r--) {
-		((u8 *)_mem)[((dst+tranfercount)&0x7fffff) ^ 3] = (_last_byte & 0x3f);
-		tranfercount++;
+	rle =(v&0x3f)+1;
+	for (r= 0;r<rle;r++,dst++) {
+		((u8 *)_mem)[(dst & 0x7fffff) ^ 3] = (_last_byte & 0x3f);
 		max_length--;
-		if ((dst+tranfercount) > 0x7fffff)
+		if (dst > 0x7fffff)
 			return max_length;
 	}
-	return tranfercount;
+	return r;
 }
 
 void CPS3DEV::__palette_dma::_init(void *regs){
@@ -308,11 +305,11 @@ int CPS3DEV::__palette_dma::_transfer(){
 	if(!_enabled)
 		return 1;
 	{
-		u32 d[5];
+		MEMORYACCESS d;
 
-		d[0]=_src;
-		cpu->Query(IMACHINE_QUERY_MEMORY_ACCESS,d);
-		src=(u16 *)*((void **)&d[1]);
+		d.addr=_src;
+		cpu->Query(IMACHINE_QUERY_MEMORY_ACCESS,&d);
+		src=(u16 *)d.mem;
 	}
 //	printf("pal dma %x %x %x %x\t\t",_src,_dst,_len,_fade);
 	_src= SL(_src,1)-0x400000;
@@ -326,7 +323,7 @@ int CPS3DEV::__palette_dma::_transfer(){
 		u32 g = (coldata & 0x03E0) >>  5;
 		u32 b = (coldata & 0x7C00) >> 10;
 
-		if (_fade!=0) {
+		if (_fade & 0x404040) {
 			int fade;
 
 			fade = (_fade & 0x3f000)>>12;
@@ -335,15 +332,13 @@ int CPS3DEV::__palette_dma::_transfer(){
 				r = 0x1f;
 			fade = (_fade & 0xfc0)>>6;
 			g = SR(g*fade,6);
-			if (g>0x1f)
-				g = 0x1f;
+			if (g>0x1f)	g = 0x1f;
 			fade = (_fade & 0x3f);
 			b = SR(b * fade,6);
-			if (b>0x1f)
-				b = 0x1f;
+			if (b>0x1f)	b = 0x1f;
 			//coldata = (r << 0) | (g << 5) | (b << 10);
 		}
-		dst[ + i] = RGB555(r,g,b);
+		dst[i] = RGB555(r,g,b);
 //		fprintf(stderr,"%x ",RGB555(r,g,b));
 	}
 	//fprintf(stderr,"\n\n");
@@ -487,7 +482,6 @@ void CPS3DEV::__flash::write(u32 a,u32 v,u32 f){
 			}
 		break;
 		case FM_PROGRAM://write byte
-
 			_invalidate=1;
 			if(_mem){
 				u32 b = a & (MB(_bank*8 + 8) - 1);
@@ -531,7 +525,6 @@ int CPS3DEV::__flash::read(u32 a,u32 v,u32 f){
 			}
 			else
 				_data=0xffffffff;
-
 			return 0;
 		case FM_READID:
 			DLOG("FLASH R:%x %u %d %x",a,elapsed,_mode,_data);

@@ -21,8 +21,8 @@ namespace ps1 {
 
 #define GTE_ADD44_OVR(a,...) GTE_ADD_<s64,GTE_MAX_44BIT,GTE_MIN_44BIT,GTE_MAX_44BIT,GTE_MIN_44BIT,0>(GTE_OVR44H(a),GTE_OVR44L(a),## __VA_ARGS__)
 
-
-struct __gte{
+class __gte{
+	public:
 	union{
 		u8 _regs8[32][4];
 		u16 _regs16[32][2];
@@ -36,6 +36,7 @@ struct __gte{
 		u32 _regs[32];
 		s32 _sregs[32];
 	} ctrl;
+
 	union{
 		struct{
 			unsigned int _cmd:6;
@@ -49,8 +50,10 @@ struct __gte{
 		};
 		u32 _opcode;
 	};
+
 	__gte();
-	int _op(u32,PS1M &);
+	virtual ~__gte();
+	int _op(u32);
 	int _ctrl_mv_from(u32,u32 *);
 	int _ctrl_mv_to(u32,u32 *);
 	int _mv_from(u32,u32 *);
@@ -69,12 +72,15 @@ struct __gte{
 	void _cfifo();
 	void _cmac_store();
 	u32 _div(u16,u16);
+
 	template <typename T, T M,T m,T sM, T sm,u32 sat> T GTE_OVR_(T a,T b,u32 fM=0,u32 fm=0);
 	template <typename T, T M,T m,T sM, T sm,u32 sat,typename... Params> T GTE_ADD_(u32 fM,u32 fm,Params &&... args);
 	template <typename T, T M,T m,u32 sat> T GTE_OVR(T a,u32 fM=0,u32 fm=0);
 
 	u8 _div_table[257];
 };
+
+
 };
 
 #endif

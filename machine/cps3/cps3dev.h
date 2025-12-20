@@ -25,9 +25,7 @@ namespace cps3{
 
 #define SS_REG_(b,a) *((u16 *)((u8 *)b + a))
 
-
 class CPS3M;
-class CPS3DEV;
 
 class CPS3DEV : private Runnable{
 public:
@@ -52,6 +50,7 @@ protected:
 		virtual int _transfer();
 		virtual void _reset();
 		virtual void _init(void *);
+		virtual ~__dma();
 	};
 
 	struct __char_dma : __dma{
@@ -273,6 +272,6 @@ protected:
 	friend class CPS3M;
 };
 
-}
+};
 
 #endif

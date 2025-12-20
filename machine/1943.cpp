@@ -70,7 +70,7 @@ int M1943::Reset(){
 int M1943::Init(){
 	if(Machine::Init())
 		return -1;
-	if(Z80Cpu::Init(&_memory[MB(5)]))
+	if(Z80Cpu::Init(&_memory[MB(5)],0,0))
 		return -2;
 	//for(int i =0;i<15;i++)
 		//SetIO_cb(i,(CoreMACallback)&M1943::fn_port_w);
@@ -161,7 +161,7 @@ int M1943::OnEvent(u32 ev,...){
 		case ME_REDRAW:
 			M1943Gpu::Update();
 			Draw();
-			CALLVA(Machine::OnEvent,ev,ev);
+			CALLVA(Machine::OnEventI,ev,ev);
 			return ev;
 		case ME_KEYUP:
 			{
@@ -466,15 +466,13 @@ int M1943::Query(u32 what,void *pv){
 			}
 		}
 			return -1;
-		case ICORE_QUERY_ADDRESS_INFO:
-			{
-				u32 adr,*pp,*p = (u32 *)pv;
-				adr =*p++;
-				pp=(u32 *)*((u64 *)p);
+		case ICORE_QUERY_ADDRESS_INFO:{
+				LPMEMORYACCESS d =(LPMEMORYACCESS)pv;
+				u32 adr=d->addr;
 				switch(SR(adr,24)){
 					case 0:
-						pp[0]=0;
-						pp[1]=KB(64);
+						d->addr=0;
+						d->size=KB(64);
 						break;
 					default:
 						return -2;
@@ -493,22 +491,6 @@ int M1943::Query(u32 what,void *pv){
 				*((LPDEBUGGERPAGE *)pv)=p;
 				memset(p,0,9*sizeof(DEBUGGERPAGE));
 				p->size=sizeof(DEBUGGERPAGE);
-				strcpy(p->title,"Registers");
-				strcpy(p->name,"3100");
-				p->type=1;
-				p->popup=1;
-
-				p++;
-				p->size=sizeof(DEBUGGERPAGE);
-				strcpy(p->title,"Memory");
-				strcpy(p->name,"3102");
-				p->type=2;
-				p->editable=1;
-				p->popup=1;
-				p->clickable=1;
-
-				p++;
-				p->size=sizeof(DEBUGGERPAGE);
 				strcpy(p->title,"IO Ports");
 				strcpy(p->name,"3103");
 				p->type=1;
@@ -524,14 +506,6 @@ int M1943::Query(u32 what,void *pv){
 				p->editable=1;
 				p->popup=0;
 				p->clickable=1;
-
-				p++;
-				memset(p,0,sizeof(DEBUGGERPAGE));
-				p->size=sizeof(DEBUGGERPAGE);
-				strcpy(p->title,"Call Stack");
-				strcpy(p->name,"3106");
-				p->type=1;
-				p->popup=1;
 			}
 			return 0;
 		default:

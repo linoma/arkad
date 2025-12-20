@@ -1,7 +1,7 @@
 #include "ps1m.h"
+#include "game.h"
 
 namespace ps1{
-
 
 PS1DEV::PS1DEV() : R3000Cpu(),PS1GPU(),PS1SPU(){
 }
@@ -9,14 +9,14 @@ PS1DEV::PS1DEV() : R3000Cpu(),PS1GPU(),PS1SPU(){
 PS1DEV::~PS1DEV(){
 }
 
-int PS1DEV::Init(PS1M &g){
+int PS1DEV::Init(){
 	for(int i =0;i<sizeof(_timers)/sizeof(__timer);i++)
-		_timers[i].init(i,_io_regs,_mem);
+		_timers[i].init(i,_ioreg,_mem);
 	for(int i=0;i<sizeof(_dmas) / sizeof(struct __dma *);i++)
-		_dmas[i]->init(i,_io_regs,_mem);
-	_cdrom.init(0,_io_regs,_mem);
-	_mdec.init(0,_io_regs,_mem);
-	_joy.init(_io_regs,_mem);
+		_dmas[i]->init(i,_ioreg,_mem);
+	_cdrom.init(0,_ioreg,_mem);
+	_mdec.init(0,_ioreg,_mem);
+	_joy.init(_ioreg,_mem);
 	return 0;
 }
 
@@ -34,16 +34,15 @@ int PS1DEV::Reset(){
 	_mdec.reset();
 	GTE._reset();
 	_joy._reset();
-
 	return 0;
 }
 
-int PS1DEV::do_sync(u32 dev,...){
-	va_list arg;
+int PS1DEV::do_sync(u32 dev){
+	//va_list arg;
 	int res;
 
 	res=0;
-	va_start(arg, dev);
+	//va_start(arg, dev);
 	switch(dev&0xf){
 		case 1://mdec
 			if((dev&0x100) && !_mdec._dof)
@@ -61,7 +60,7 @@ int PS1DEV::do_sync(u32 dev,...){
 			}
 		break;
 	}
-	va_end(arg);
+	//va_end(arg);
 	return res;
 }
 
@@ -90,15 +89,16 @@ int PS1DEV::do_dma(struct __dma *dma){
 			break;
 			case 3://cdrom
 				WB(dst,d);
-				if(!_cdrom._dfe) dma->_count=1;
+				if(!_cdrom._dfe)
+					dma->_count=1;
 			break;
 		}
 	}
 	dma->_end_transfer(0,*((PS1M *)this));
 	res=0;
-	if(PS1IOREG(0x1f8010F4) & BV(16 + dma->_idx)){
+	if(PS1IOREG(0x1f8010F4) & BV(16 + dma->_idx))
 		PS1IOREG(0x1f8010F4) |= BV(24+dma->_idx);
-	}
+
 	if(
 		(PS1IOREG(0x1f8010F4) & BV(15)) || ((PS1IOREG(0x1f8010F4) & BV(23)) && (PS1IOREG(0x1f8010F4) & 0x7f000000))
 		 ){
@@ -117,7 +117,7 @@ PS1DEV::__timer::__timer(){
 
 int PS1DEV::__timer::init(int n,void *m,void *mm){
 	_idx=n;
-	_io_regs=(u32 *)m;
+	_ioreg=(u32 *)m;
 	_mem=(u8 *)mm;
 	return 0;
 }
@@ -174,10 +174,9 @@ u32 PS1DEV::__timer::_count(){
 		vv=_elapsed <__cycles ? __cycles-_elapsed: (MHZ(33)-_elapsed)+__cycles;
 	switch(_source){
 		case 2:
-			switch(_idx){
-				case 2:
-					v = (u32)(u16)SR(vv,3);//sysem/8
-					goto Z;
+			if(_idx==2){
+				v = (u32)(u16)SR(vv,3);//sysem/8
+				goto Z;
 			}
 		case 0:
 			v = (u32)(u16)vv;
@@ -277,7 +276,7 @@ int PS1DEV::__joy::_write(u32 a,u32 v){
 }
 
 int PS1DEV::__joy::init(void *io,void *m){
-	_io_regs=(u32 *)io;
+	_ioreg=(u32 *)io;
 	for(int i=0;i<sizeof(_cards)/sizeof(__card);i++)
 		_cards[i]._init(io,m);
 	return 0;
@@ -333,8 +332,9 @@ int PS1DEV::__dma::write(u32 r,u32 v,PS1M &g){
 				//	case 2:
 						_state=0;
 						v &= ~(BV(24)|BV(28));
-						if(g.do_dma(this))
+						if(g.do_dma(this)){
 							g.OnEvent(3,1);
+						}
 					break;
 					default:
 						//PS1IOREG(0x1f801814) &= ~BV(28);
@@ -359,7 +359,7 @@ int PS1DEV::__dma::reset(){
 }
 
 int PS1DEV::__dma::init(int n,void *m,void *mm){
-	_io_regs=(u32 *)m;
+	_ioreg=(u32 *)m;
 	_mem=(u8 *)mm;
 	_idx=n;
 	return 0;
@@ -551,7 +551,7 @@ int PS1DEV::__spu_dma::_do_transfer(u32 v,u32 *r){
 }
 
 int PS1DEV::__spu_dma::_end_transfer(u32 a,PS1M &m){
-	*(u16 *)(PS1IOREG8_(0x1f801dae,_io_regs)) &=~0x20;
+	*(u16 *)(PS1IOREG8_(0x1f801dae,_ioreg)) &=~0x20;
 	//PS1IOREG(0x1f801dae) &=~0x20;
 	//printf("end sppudma %x\n",PS1IOREG(0x1f801dae));
 	return __dma::_end_transfer(a,m);
@@ -569,12 +569,15 @@ int PS1DEV::__mdec_dma::_prepare_dma(){
 		case 0:
 			_count=(u16)_count;
 		break;
-		case 1:
-			_count=SR(_count,16)*(u16)_count;
+		case 1:{
+			u32 s;
+			if(!(s=SR(_count,16))) s=1;
+			_count=s*(u16)_count;
+		}
 		break;
 	}
 #ifdef _DEVELOPa
-	printf("do __mdec_dma %d %x %x %x %x %x\n",_idx,_sync,_src,v,_count,_dst);
+	printf("do __mdec_dma %d %x %x %x %x\n",_idx,_sync,_src,_count,_dst);
 #endif
 	return 0;
 }
@@ -669,7 +672,7 @@ int PS1DEV::__cdrom::Query(u32 what,void *pv){
 }
 
 int PS1DEV::__cdrom::init(int,void *m,void *mm){
-	_io_regs=(u32 *)m;
+	_ioreg=(u32 *)m;
 	_mem=(u8 *)mm;
 	if(!(_regs= new u8[5000]))
 		return  -1;
@@ -718,7 +721,7 @@ int PS1DEV::__cdrom::write(u32 a,u32 v,PS1M &){
 					_regs[REG_ISTAT] &= ~v;
 					_regs[15]=_regs[REG_ISTAT];
 
-					if(_play &&_report)
+					if(_play && _report)
 						return _do_report(0);
 					if(_state==3) _state=4;
 					return 0;
@@ -751,8 +754,7 @@ int PS1DEV::__cdrom::read(u32 a,u32 *pv){
 			}
 		break;
 		case 2://read data
-			*(u8 *)pv=_buffer[_cr++];
-
+			*(u32 *)pv=_buffer[_cr++];
 			if(_cw)
 				_cw--;
 			//_rfe=0;
@@ -823,7 +825,7 @@ int PS1DEV::__cdrom::_execCommand(int){
 				//for(int i=0;i<_param;i++) printf("%x ",_params[i]);
 			//	printf("\t%x\n",_param);
 				_mode=_params[0];
-				u32 a=(!(_mode&0x60)?0x800:0x924)+CDIO_CD_SYNC_SIZE ;
+				u32 a=(!(_mode&0x60)?0x800:0x924)+CDIO_CD_SYNC_SIZE;
 				_game->Query(IGAME_SET_ISO_MODE,&a);
 				_param=0;
 				_rfe=1;
@@ -853,7 +855,9 @@ int PS1DEV::__cdrom::_execCommand(int){
 					_status=0;
 					_spinning=1;
 					_fxas=1;
-					_buffer[0]=_status;if(_mode & 1) printf("cdda\n");
+					_buffer[0]=_status;
+					if(_mode & 1)
+						printf("cdda\n");
 					CD_SET_INT(3);
 					CD_RET_IRQ(3);
 				case 3:
@@ -862,9 +866,11 @@ int PS1DEV::__cdrom::_execCommand(int){
 				case 4:
 					_reading=1;
 					_game->Seek(_pos,SEEK_SET);
+					//if(_pos==0x614997c) EnterDebugMode();
 					_game->Read(&_buffer[1],!(_mode & 0x60) ? 0x80c:0x930);
 					_game->Tell(&_pos);
-				//	DLOG("CDROM READ%c %x %x %x %x",_regs[4]==6?78:83,_buffer[1],_buffer[2],_buffer[3],_buffer[7]);
+					//printf("read %x  %x %x\n",_buffer[1],_buffer[2],_buffer[3]);
+					//DLOG("CDROM READ%c %x  %x %x %x %x",_regs[4]==6?78:83,_mode,_buffer[1],_buffer[2],_buffer[3],_buffer[7]);
 					if((_mode & 0x40)){
 						if(_regs[4]==CMD_READS && _buffer[7] & 4){
 							//printf("%x  %x %x\n",_buffer[1],_buffer[2],_buffer[3]);
@@ -888,7 +894,9 @@ int PS1DEV::__cdrom::_execCommand(int){
 						return 0;
 					}
 					_dfe=1;
+
 					_cw=0x800+CDIO_CD_SYNC_SIZE;
+					//_cw=(_mode&0x60)?0x800:0x924;
 					_cr=1;
 					//memcpy(_buffer,&_buffer[1],0x800);
 					if(!(_mode&0x20)){

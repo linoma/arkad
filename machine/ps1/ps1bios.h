@@ -6,13 +6,11 @@
 
 namespace ps1{
 
-class PS1M;
-
 class PS1BIOS : public PS1DEV{
 public:
 	PS1BIOS();
 	virtual ~PS1BIOS();
-	virtual int Init(PS1M &);
+	virtual int Init();
 	virtual int Reset();
 protected:
 	virtual int ExecA0(u32);
@@ -21,11 +19,11 @@ protected:
 	virtual int ReturnFromCall();
 	virtual int _enterIRQ(int n,u32 pc=0);
 private:
-	u32 _malloc(u32,u32);
-	int _free(u32);
+	u32 _alloc_mem(u32,u32);
+	int _free_mem(u32);
 	u32 _regs_copy[38],SysIntRP[8];
 	void *_hook_irq;
-	typedef struct {
+	typedef struct __evcb{
 		u32 desc;
 		s32 status;
 		s32 mode;
@@ -88,7 +86,7 @@ private:
 		u32 addr,end,last;
 	} _heap;
 
-	struct DIRENTRY {
+	struct __direntry {
 		char name[20];
 		s32 attr;
 		s32 size;

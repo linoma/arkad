@@ -16,15 +16,22 @@ public:
 	virtual int Init();
 
 	virtual int OnEvent(u32,...);
-	virtual int Draw(HDC cr=NULL){return -1;};
+	virtual int Draw(HDC cr=NULL){return Denise::Draw(cr);};
 	virtual int Query(u32 what,void *pv);
 	virtual int Exec(u32);
 	virtual int Dump(char **);
 
-	virtual s32 fn_write_io(u32,void *,void *,u32);
-	virtual s32 fn_read_io(u32,void *,void *,u32);
-	virtual s32 fn_write_cia(u32,void *,void *,u32);
-	virtual s32 fn_read_cia(u32,void *,void *,u32);
+	virtual int LoadSettings(void * &);
+
+	virtual int Run(u8 *,int cyc,void *obj);
+protected:
+	s32 fn_write_cia(u32,void *,void *,u32);
+	s32 fn_read_cia(u32,void *,void *,u32);
+
+	int _loadBios(char *);
+
+	u32 mo[10],keys[20];
+//private:
 };
 
 };

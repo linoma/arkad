@@ -17,16 +17,15 @@ public:
 	virtual int Init();
 
 	virtual int OnEvent(u32,...);
-	virtual int Draw(HDC cr=NULL){return -1;};
+	virtual int Draw(HDC cr=NULL){return ps2gpu::Draw(cr);};
 	virtual int Query(u32 what,void *pv);
 	virtual int Exec(u32);
 	virtual int Dump(char **);
 	virtual int LoadSettings(void * &v);
 
-	virtual s32 fn_write_io(u32,void *,void *,u32);
+	s32 fn_write_io(u32,void *,void *,u32);
 protected:
 	virtual int OnJump(u32);
-	virtual int OnCop(RSZU,RSZU,RSZU,RSZU *ss);
 	virtual int OnException(u32,u32);
 
 };

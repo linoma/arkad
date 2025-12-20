@@ -1,4 +1,5 @@
 #include "ps1m.h"
+#include "ps1rom.h"
 #include "gui.h"
 
 extern GUI gui;
@@ -39,7 +40,7 @@ int PS1M::Load(IGame *pg,char *fn){
 	//_key1=d[0];
 	//_key2=d[1];
 
-	printf("adr:%x size;%u PC:%x %5x %u\n",d[IGAME_GET_INFO_SLOT],d[IGAME_GET_INFO_SLOT+1],d[IGAME_GET_INFO_SLOT+2],d[IGAME_GET_INFO_SLOT+4],(u32)sizeof(PS1EXE_HEADER));
+//	printf("adr:%x size;%u PC:%x %5x %u\n",d[IGAME_GET_INFO_SLOT],d[IGAME_GET_INFO_SLOT+1],d[IGAME_GET_INFO_SLOT+2],d[IGAME_GET_INFO_SLOT+4],(u32)sizeof(PS1EXE_HEADER));
 
 	pg->Read(_memory,d[IGAME_GET_INFO_SLOT+1],NULL);
 
@@ -67,13 +68,12 @@ int PS1M::Destroy(){
 	_portfnc_write = _portfnc_read=NULL;
 	return 0;
 }
-static int lino=0;
+
 int PS1M::Reset(){
 	Machine::Reset();
 	PS1BIOS::Reset();
 	PS1GPU::Reset();
-	PS1SPU::Reset();
-	return 0;
+	return PS1SPU::Reset();
 }
 
 int PS1M::Init(){
@@ -81,15 +81,15 @@ int PS1M::Init(){
 		return -1;
 	if(R3000Cpu::Init(&_memory[MB(2)]))
 		return -2;
-	_io_regs=(u32 *)&_mem[MB(4)];
+	_ioreg=(u32 *)&_mem[MB(4)];
 	_gpu_mem=&_mem[MB(5)];
-	_gpu_regs=_io_regs;
+	_gpu_regs=_ioreg;
 	if(PS1GPU::Init())
 		return -3;
-	if(PS1BIOS::Init(*this))
+	if(PS1BIOS::Init())
 		return -5;
-	_spu_regs=_io_regs;
-	if(PS1SPU::Init(*this,_io_regs,&_memory[MB(20)]))
+	_spu_regs=_ioreg;
+	if(PS1SPU::Init(_ioreg,&_memory[MB(20)]))
 		return -6;
 	_portfnc_write = (CoreMACallback *)new CoreMACallback[0x40000];
 	if(_portfnc_write==NULL)
@@ -187,7 +187,7 @@ int PS1M::OnEvent(u32 ev,...){
 		}
 		return 0;
 		case ME_REDRAW:
-			//SaveBitmap("cazzo.bmp",1024,512,16,16,_gpu_mem);
+			//SaveBitmap("vram.bmp",1024,512,16,16,_gpu_mem);
 			_gpu_status |= GRE_STATUS_SWAP_BUFFER;
 	//		GRE::_clearTextures();
 			PS1GPU::Update();
@@ -357,25 +357,23 @@ int PS1M::Query(u32 what,void *pv){
 			printf("ICORE_QUERY_MEMORY_WRITE %x\n",p[2]);
 		}
 			return 0;
-		case ICORE_QUERY_ADDRESS_INFO:
-			{
-				u32 adr,*pp,*p = (u32 *)pv;
-				adr =*p++;
-				pp=(u32 *)*((u64 *)p);
+		case ICORE_QUERY_ADDRESS_INFO:{
+				LPMEMORYACCESS d =(LPMEMORYACCESS)pv;
+				u32 adr=d->addr;
 				switch(SR(adr,20)){
 					case 0x800:
 					case 0x801:
-						pp[0]=0x80000000;
-						pp[1]=MB(2);
+						d->addr=0x80000000;
+						d->size=MB(2);
 						break;
 					case 0x1f8:
-						pp[0]=0x1F800000;
-						pp[1]=KB(64);
+						d->addr=0x1F800000;
+						d->size=KB(64);
 					break;
 #ifdef _DEVELOP
 					case 0x1f9:
-						pp[0]=0x1F900000;
-						pp[1]=MB(1);
+						d->addr=0x1F900000;
+						d->size=MB(1);
 					break;
 #endif
 					default:
@@ -395,22 +393,6 @@ int PS1M::Query(u32 what,void *pv){
 				*((LPDEBUGGERPAGE *)pv)=p;
 				memset(p,0,9*sizeof(DEBUGGERPAGE));
 				p->size=sizeof(DEBUGGERPAGE);
-				strcpy(p->title,"Registers");
-				strcpy(p->name,"3100");
-				p->type=1;
-				p->popup=1;
-
-				p++;
-				p->size=sizeof(DEBUGGERPAGE);
-				strcpy(p->title,"Memory");
-				strcpy(p->name,"3102");
-				p->type=2;
-				p->editable=1;
-				p->popup=1;
-				p->clickable=1;
-
-				p++;
-				p->size=sizeof(DEBUGGERPAGE);
 				strcpy(p->title,"GTE");
 				strcpy(p->name,"3103");
 				p->type=1;
@@ -418,15 +400,8 @@ int PS1M::Query(u32 what,void *pv){
 
 				p++;
 				p->size=sizeof(DEBUGGERPAGE);
-				strcpy(p->title,"Devces");
+				strcpy(p->title,"Devices");
 				strcpy(p->name,"3104");
-				p->type=1;
-				p->popup=1;
-
-				p++;
-				p->size=sizeof(DEBUGGERPAGE);
-				strcpy(p->title,"Call Stack");
-				strcpy(p->name,"3108");
 				p->type=1;
 				p->popup=1;
 
@@ -601,7 +576,7 @@ int PS1M::OnCop(u32 cop,u32 op,u32 s,u32 *d){
 		case 1://cop
 			switch(cop){
 				case 2:
-					return GTE._op(s,*this);
+					return GTE._op(s);
 				case 0:
 					switch(s&0x3f){
 						default:
@@ -726,10 +701,11 @@ s32 PS1M::fn_write_io_dma(u32 a,void *mem,void *pdata,u32 attr){
 		case 0xf4:{
 			u32 v,vv;
 
-			DLOG("DMA CNT %x %x %x",*(u32 *)pdata,*(u32*)mem,attr);
+		//	DLOG("DMA CNT %x %x %x",*(u32 *)pdata,*(u32*)mem,attr);
 			v=*(u32 *)pdata;
-			vv=*(u32*)mem;
+			vv=*(u32 *)mem;
 			vv = (v&0xffffff)| ((vv & ~(v & 0x7f000000)) & 0x7f000000);
+
 			if((vv&BV(15)) || ((vv & BV(23)) && (vv & 0x7f000000)) )
 				vv |= BV(31);
 			*(u32 *)pdata=vv;
@@ -770,8 +746,6 @@ s32 PS1M::fn_write_io_mdec(u32 a,void *,void *pdata,u32){
 		case 2:
 			AddTimerObj((ICpuTimerObj *)&_mdec,SR(res,8),this);
 			res=1;
-		break;
-		default:
 		break;
 	}
 	return res;
@@ -841,7 +815,7 @@ static char prs[][3]={"zr","at","v0","v1","a0","a1","a2","a3","t0","t1","t2","t3
 
 R3000Cpu::R3000Cpu() : CCore(){
 	_regs=NULL;
-	_io_regs=NULL;
+	_ioreg=NULL;
 	_freq=MHZ(33);
 }
 
@@ -866,7 +840,7 @@ int R3000Cpu::Reset(){
 	return 0;
 }
 
-int R3000Cpu::Init(void *m){
+int R3000Cpu::Init(void *m,u32 ss,u32 f){
 	u32 n;
 
 	if(!(_regs = new u8[n=40*sizeof(RSZU)]))
@@ -938,7 +912,7 @@ int R3000Cpu::_exec(u32 status){
 					__R3000F(%s\x2c%s\x2c$%x,"SRA",prs[RD(_opcode)],prs[RT(_opcode)],POS(_opcode));
 				break;
 				case 4:
-					REG_(RD(_opcode)) = SL(REG_(RT(_opcode)),REG_(RS(_opcode))&0x1f);
+					REG_(RD(_opcode)) = SL(REG_(RT(_opcode)),REG_(RS(_opcode)) & 0x1f);
 					__R3000F(%s\x2c%s\x2c%s,"SLLV",prs[RD(_opcode)],prs[RT(_opcode)],prs[RS(_opcode)]);
 				break;
 				case 6:
@@ -1393,7 +1367,7 @@ int R3000Cpu::Disassemble(char *dest,u32 *padr){
 	op=_opcode;
 	RLPC(adr,_opcode);
 	sprintf(&c[8]," %8x ",_opcode);
-	adr +=4;
+	adr += 4;
 	switch((_opcode >> 24) & 0xFC){
 		default:
 		break;

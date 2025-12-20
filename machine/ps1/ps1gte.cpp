@@ -137,13 +137,16 @@ __gte::__gte(){
 	_div_table[256]=0;
 }
 
+__gte::~__gte(){
+}
+
 int __gte::_reset(){
 	memset(ctrl._regs,0,sizeof(ctrl._regs));
 	memset(_regs,0,sizeof(_regs));
 	return 0;
 }
 
-int __gte::_op(u32 op,PS1M &g){
+int __gte::_op(u32 op){
 	s64  a,b,c;
 	u8 sh;
 
@@ -699,5 +702,6 @@ template <typename T, T M,T m,T sM, T sm,u32 sat> T __gte::GTE_OVR_(T a,T b,u32 
 template <typename T, T M,T m,u32 sat> T __gte::GTE_OVR(T a,u32 fM,u32 fm){
 	return GTE_OVR_<T,M,m,M,m,sat>(a,a,fM,fm);
 }
+
 
 };

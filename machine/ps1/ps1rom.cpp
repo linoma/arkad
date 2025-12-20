@@ -1,7 +1,4 @@
 #include "ps1rom.h"
-#include <string.h>
-#include <stdlib.h>
-#include <memory.h>
 
 namespace ps1{
 
@@ -90,7 +87,8 @@ int PS1ROM::Query(u32 w,void *pv){
 		case IGAME_SET_ISO_MODE:{
 			if(!_data || !_header || !pv)
 				return -3;
-			return ((PS1CUEROM *)_data)->Query(ISTREAM_QUERY_SET_BLOK_SIZE,pv);
+			//printf("IGAME_SET_ISO_MODE %u\n",*(u32 *)pv);
+			return ((PS1CUEROM *)_data)->Query(ISTREAM_QUERY_SET_BLOCK_SIZE,pv);
 		}
 		case IGAME_GET_INFO:
 			if(Game::Query(w,pv))
@@ -132,7 +130,7 @@ int PS1ROM::Query(u32 w,void *pv){
 				((u32 *)pv)[3]=0;
 				((u32 *)pv)[4]=0;
 				((u32 *)pv)[5]=0;
-				p =  &((char*)v)[4];
+				p =  &((char *)v)[sizeof(u32)*2];
 
 				for(u32 i=1,pos=0;*p;i++){
 					pp=p;
@@ -181,11 +179,6 @@ int PS1ROM::Query(u32 w,void *pv){
 	}
 }
 
-PS1CUEROM::PS1CUEROM() : RomStream(){
-	_size=0;
-	_start=0;
-}
-
 PS1CUEROM::PS1CUEROM(char *p) : RomStream(p){
 	_size=0;
 	_start=0;
@@ -218,7 +211,7 @@ int PS1CUEROM::_getInfo(u32 *psz,void **o){
 	p=(char *)*o;
 	res--;
 	*(u32 *)p=_tracks.size();
-	pp=p+sizeof(u32);
+	pp=p+sizeof(u32)*2;
 	pos=0;
 	for(auto it=_tracks.begin();it!=_tracks.end();it++){
 		strcpy(pp,(*it)._filename.c_str());
@@ -321,33 +314,34 @@ for(auto it=_tracks.begin();it!=_tracks.end();it++)
 		fp=fopen(s.c_str(),"rb");
 		if(!_getFilePosition((char *)"cdrom:\\SYSTEM.CNF;1",&r)){
 			int i,ii;
+			char _fn[1024],*pp;
 
 			_iso9660_read(r[0],_buf);
 			delete []r;
-			char _fn[1024],*pp;
-				if(!(pp=strstr((char *)_buf+12,"cdrom:"))) goto Z;
-				res--;
-				for(char *s=pp;*s;s++){
-					if(*s=='\n' || *s=='\r'){
-						*s=0;
-						break;
-					}
+
+			if(!(pp=strstr((char *)_buf+12,"cdrom:"))) goto Z;
+			res--;
+			for(char *s=pp;*s;s++){
+				if(*s=='\n' || *s=='\r'){
+					*s=0;
+					break;
 				}
+			}
 
-				for(i=0;pp[6+i];i++) _fn[i]=toupper(pp[6+i]);
-				*((u32 *)&_fn[i])=0;
-				pp=_fn;
-				if(_getFilePosition(pp,&r)) goto Z;
+			for(i=0;pp[6+i];i++) _fn[i]=toupper(pp[6+i]);
+			*((u32 *)&_fn[i])=0;
+			pp=_fn;
+			if(_getFilePosition(pp,&r)) goto Z;
 
-				res--;
+			res--;
 
-				u32 pos=r[0];//*(u32 *)p->extent;
+			u32 pos=r[0];//*(u32 *)p->extent;
 
-				delete []r;
-				_iso9660_read(pos,_buf);
-				memcpy(_header,&_buf[12],sizeof(PS1EXE_HEADER));
-				_start=2048 + pos*CD_FRAMESIZE_RAW + (CD_FRAMESIZE_RAW-CD_ISO_BLOCK_SIZE) + CDIO_CD_CHUNK_SIZE;
-				return 0;//2352+(2352-2038)+23
+			delete []r;
+			_iso9660_read(pos,_buf);
+			memcpy(_header,&_buf[12],sizeof(PS1EXE_HEADER));
+			_start=2048 + pos*CD_FRAMESIZE_RAW + (CD_FRAMESIZE_RAW-CD_ISO_BLOCK_SIZE) + CDIO_CD_CHUNK_SIZE;
+			return 0;//2352+(2352-2038)+23
 		}
 	}
 
@@ -361,20 +355,18 @@ int PS1CUEROM::Read(void *buf,u32 sz,u32 *po){
 	u32 n,r;
 
 	n=0;
-	//printf("cd r %lu\n",ftell(fp));
+	///printf("cd r %lx %u %u ",ftell(fp),_szBlock,sz);
 	for(u8*p=(u8 *)buf;sz;){
-		if(FileStream::Read(p,sz > _szBlock ? _szBlock : sz,&r))
+		if(FileStream::Read(p,sz > _data_size ? _data_size : sz,&r))
 			break;
 		sz -= r;
 		p += r;
 		n += r;
-		FileStream::Seek( (CD_FRAMESIZE_RAW-_szBlock),SEEK_CUR);
+		FileStream::Seek( (_sector_size-_data_size),SEEK_CUR);
 	}
+	//printf("%x \n",*(u8*)buf);
 	if(po) *po=n;
 	return 0;
-}
-
-PS1ECMROM::PS1ECMROM(): PS1CUEROM(){
 }
 
 PS1ECMROM::PS1ECMROM(char *p): PS1CUEROM(p){
@@ -389,10 +381,6 @@ int PS1ECMROM::Parse(IGame *,PS1EXE_HEADER *h){
 		return -1;
 	FileStream::Seek(0,SEEK_SET);
 	return -1;
-}
-
-RomStream::RomStream() : ISOStream(){
-	_start=2048;
 }
 
 RomStream::RomStream(char *p) : ISOStream(p){

@@ -2,6 +2,7 @@
 #include "ccore.h"
 #include "general_device.h"
 #include "cpu.h.inc"
+#include <vector>
 #include "amigadenise.h"
 #include "amigapaula.h"
 
@@ -9,6 +10,42 @@
 #define __AMIGA500DEVH__
 
 namespace amiga{
+
+#define ISIO(a) 	((SR(a,20)&15)==0xb || (SR(a,20)&15)==0xd)
+#define ISM68IO(a) 	ISIO(a)
+
+#define MS_RAM2		KB(512)
+#define MS_RAM		KB(512)
+
+#define MI_RAM 		0
+#define MI_RAM2 	(MI_RAM+MS_RAM)
+#define MI_BIOS 	(MI_RAM2+MS_RAM2)
+
+#define M_RAM 		(&CCore::_mem[MI_RAM])
+#define M_RAM2 		(&CCore::_mem[MI_RAM2])
+#define M_BIOS 		(&CCore::_mem[MI_BIOS])
+
+#define RAM_(a) 	MA_(a,0,MS_RAM)
+#define RAM_R(a,b) 	RAM_(a){b=&M_RAM[(a) & (MS_RAM-1)];}
+#define RAM_W(a,b) 	RAM_R(a,b)
+
+#define RAM2_(a) 	MA_(a,0xc00000,(0xc00000|(MS_RAM2-1)))
+#define RAM2_R(a,b) RAM2_(a){b=&M_RAM2[(a) & (MS_RAM2-1)];}
+#define RAM2_W(a,b) RAM2_R(a,b)
+
+#define BIOS_(a) 	MA_(a,0xf80000,0xFFFFFF)
+#define BIOS_R(a,b) BIOS_(a){b=&M_BIOS[(a) & 0x7ffff];}
+#define BIOS_W(a,b) BIOS_(a){b=0;}
+
+#define RMAP_(a,b,c){u32 __a__ = (a)&0xffffff;\
+BIOS_##c(__a__,b)\
+MAE_ RAM2_##c(__a__,b)\
+MAE_ RAM_##c(__a__,b)\
+MAE_ MA_(__a__,0xa00000,0xbFFFFF){b=(u8 *)M68000Cpu::_ioreg + M68IO(a);}\
+MAE_ MA_(__a__,0xdff000,0xdFFFFF){b=(u8 *)M68000Cpu::_ioreg + M68IO(a);}\
+MAE_ b=NULL;}
+
+#define RMAP_PC(a,b,c) RMAP_(a,b,c)
 
 #include "m68000.h.inc"
 
@@ -220,68 +257,540 @@ namespace amiga{
 #define REG_DIWHIGH     (0x1E4/2)   /* W  A D    Display window upper bits for start/stop */
 #define REG_FMODE       (0x1FC/2)   /* W  A D    Fetch mode */
 
+/* DMACON bit layout */
+#define DMACON_AUD0EN   0x0001
+#define DMACON_AUD1EN   0x0002
+#define DMACON_AUD2EN   0x0004
+#define DMACON_AUD3EN   0x0008
+#define DMACON_DSKEN    0x0010
+#define DMACON_SPREN    0x0020
+#define DMACON_BLTEN    0x0040
+#define DMACON_COPEN    0x0080
+#define DMACON_BPLEN    0x0100
+#define DMACON_DMAEN    0x0200
+#define DMACON_BLTPRI   0x0400
+#define DMACON_RSVED1   0x0800
+#define DMACON_RSVED2   0x1000
+#define DMACON_BZERO    0x2000
+#define DMACON_BBUSY    0x4000
+#define DMACON_SETCLR   0x8000
+
+/* BPLCON0 bit layout */
+#define BPLCON0_RSVED1  0x0001
+#define BPLCON0_ERSY    0x0002
+#define BPLCON0_LACE    0x0004
+#define BPLCON0_LPEN    0x0008
+#define BPLCON0_BPU3    0x0010
+#define BPLCON0_RSVED3  0x0020
+#define BPLCON0_RSVED4  0x0040
+#define BPLCON0_RSVED5  0x0080
+#define BPLCON0_GAUD    0x0100
+#define BPLCON0_COLOR   0x0200
+#define BPLCON0_DBLPF   0x0400
+#define BPLCON0_HOMOD   0x0800
+#define BPLCON0_BPU0    0x1000
+#define BPLCON0_BPU1    0x2000
+#define BPLCON0_BPU2    0x4000
+#define BPLCON0_HIRES   0x8000
+
+/* INTENA/INTREQ bit layout */
+#define INTENA_TBE      0x0001
+#define INTENA_DSKBLK   0x0002
+#define INTENA_SOFT     0x0004
+#define INTENA_PORTS    0x0008
+#define INTENA_COPER    0x0010
+#define INTENA_VERTB    0x0020
+#define INTENA_BLIT     0x0040
+#define INTENA_AUD0     0x0080
+#define INTENA_AUD1     0x0100
+#define INTENA_AUD2     0x0200
+#define INTENA_AUD3     0x0400
+#define INTENA_RBF      0x0800
+#define INTENA_DSKSYN   0x1000
+#define INTENA_EXTER    0x2000
+#define INTENA_INTEN    0x4000
+#define INTENA_SETCLR   0x8000
+
+#undef IOREG__
+#undef M68IO
+#undef IOREG_
+#undef IOREG
+
+#define IOREG__(a,b) 		((u16 *)(a) + (b))
+#define IOREG_(a,b) 		*IOREG__(a,b)
+#define IOREG(b) 			IOREG_(_ioreg,b)
+
+#define M68IO(a) 			(SR((a) & 0x700000,9)| SR((a)&0x4000,5) | ((a)&0x1ff))
+#define ACHIPREG_(b,a) 		IOREG_(b,SR(M68IO(0xdff000),1)|(a))
+#define ACHIPREG32_(b,a) 	(*(u32 *)IOREG__(b,SR(M68IO(0xdff000),1)|(a)))
+
+#define ACHIPREG(a) 		ACHIPREG_(_ioreg,a)
+#define REG_SETCLR(a,b){ if (b & 0x8000){ a |= b & 0x7FFF;} else{ a &= ~b;}}
+
+#define AMIGA_DISKSELECT				MACHINE_EVENT(0x100)
+
+#define CIAA		1
+#define CIAB		2
+#define KEYBOARD	3
+#define FLOPPY		4
+#define AGNUS		5
+#define COPPER		6
+#define BLITTER		7
+
+using namespace std;
+
 class amiga500dev : public M68000Cpu,public Denise,public Paula{
 public:
 	amiga500dev();
 	virtual ~amiga500dev();
 	virtual int Reset();
-	virtual int Init(void *,void *);
+	int Init(void *,void *);
+	virtual int Destroy();
+	virtual int _enterIRQ(int n,u32 pc=0);
 
-	struct __gary{
-		int reset();
-		int init(int,void *,void *);
-		virtual int write(u32,u16);
-		virtual int read(u32,u16 *);
-		private:
-			u16 *_io_regs;
-			u8 *_mem;
-	} _gary;
+	typedef  struct __copper_item{
+		u8 _r;
+		u16 _val,_x,_y;
+
+		__copper_item(){_x=_y=_r=0;_val=0;};
+		__copper_item(u16 x,u16  y,u8 r,u16 val){_x=x;_y=y;_r=r;_val=val;};
+	} COPPERITEM;
+
+	vector<amiga500dev::COPPERITEM> &_getCopperOpcodes(){return _agnus._copper._opcodes;};
 
 	struct __fat_agnus{
+		union{
+			struct{
+				unsigned int _enabled:1;
+				unsigned int _busy:1;
+				unsigned int _lock:1;
+			};
+			u32 _status;
+		};
+
 		int reset();
-		int init(int,void *,void *);
-		virtual int write(u32,u16);
-		virtual int read(u32,u16 *);
+		int init(int,void *,void *,u32);
+		int write(u32,u16);
+		int read(u32,u16 *);
+		int update(int);
+		int _dumpRegisters(char *);
+
+		struct __copper{
+			vector<COPPERITEM>_opcodes;
+			enum : u8{
+				MOVE=1,
+				WAIT,
+				SKIP,
+				STOP
+			};
+			union{
+				struct{
+					unsigned int _enabled:1;
+					unsigned int _changed:1;
+					unsigned int _busy:1;
+					unsigned int _lock:1;
+					unsigned int _state:3;
+					unsigned int _mode:1;
+
+				};
+				u32 _status;
+			};
+			__copper();
+			int init(int,void *,void *,u32);
+			int reset();
+			int update(int);
+			int write(u32,u16);
+			int read(u32,u16 *);
+			int _dumpRegisters(char *);
+
+			u32 _pc,_lc[2],_cycles,_freq;
+			private:
+			u16 *_ioreg;
+			u8 *_mem;
+
+			struct{
+				union{
+					u16 val;
+					struct{
+						unsigned int cv:1;
+						unsigned int hv:7;
+						unsigned int vv:7;
+						unsigned int bw:1;
+					};
+					struct{
+						unsigned int cv:1;
+						unsigned int hv:7;
+						unsigned int vv:8;
+					} v;
+				} w[2];
+
+				int reset(){w[0].val=w[1].val=0;return 0;};
+			} _wait;
+		} _copper;
+
+		struct __blitter{
+			union{
+				struct{
+					unsigned int _enabled:1;
+					unsigned int _changed:4;
+					unsigned int _busy:1;
+					unsigned int _nasty:1;
+					unsigned int _state:3;
+				};
+				u16 _status;
+			};
+			__blitter();
+			int init(int,void *,void *,u32);
+			int reset();
+			int update(int);
+			int write(u32,u16);
+			int read(u32,u16 *);
+			private:
+				int _ascending();
+				int _line();
+				int _descending();
+
+			u16 *_ioreg,_width,_height;
+			u8 *_mem;
+			u32 _cycles,_delay,_freq;
+
+			union{
+				u8 *mem;
+				u32 v32;
+				s32 sv32;
+				s16 sv;
+				u16 v;
+				u8 v8;
+				s8 sv8;
+			} _regs[30];
+
+			enum : u8{
+				CON0=0,CON1,
+				APTH,BPTH,CPTH,DPTH,
+				ADAT,BDAT,CDAT,
+				AFWM,ALWM,
+				AMOD,BMOD,CMOD,DMOD,
+				APTL,
+				APM=21,	BPM,CPM,DPM
+			};
+		} _blitter;
+
+		__fat_agnus();
+
 		private:
-			u16 *_io_regs;
+			u16 *_ioreg;
 			u8 *_mem;
 	} _agnus;
 
-	struct __cia{
+	struct __cia;
+	struct __keyboard;
+
+	class __fdc : public ADevice{
+		public:
+		typedef enum { ADF_NORMAL, ADF_EXT1, ADF_EXT2, ADF_FDI, ADF_IPF, ADF_CATWEASEL, ADF_PCDOS } drive_filetype;
+		typedef enum { TRACK_AMIGADOS, TRACK_RAW, TRACK_RAW1, TRACK_PCDOS } image_tracktype;
+		typedef struct __trackid{
+			__trackid(){len=0;type=TRACK_AMIGADOS;offs=bitlen=track=sync=elen=0;};
+			__trackid(u16 a,u32 b,image_tracktype c){len=a;offs=b;type=c;bitlen=track=sync=elen=0;};
+			u16 elen;
+			u32 offs,bitlen, track, sync,len;
+			image_tracktype type;
+		} trackid;
+
+		struct __floppy : vector<trackid>{
+			__floppy();
+			virtual ~__floppy();
+			union{
+				struct{
+					unsigned int _changed:1;
+					unsigned int _on:1;
+					unsigned int _ready:1;
+					unsigned int _wp:1;
+					unsigned int _dir:1;
+					unsigned int _side:1;
+					unsigned int _sides:1;
+					unsigned int _ddhd:1;
+					unsigned int _selected:1;
+					unsigned int _eject:1;
+					unsigned int _empty:1;
+					unsigned int _refill:1;
+					unsigned int _0:4;
+					unsigned int _idx:2;
+					unsigned int _turbo:1;
+				};
+				u16 _status;
+			};
+
+			u32 _cyl,_mfmpos,_len,_cycles[5],_ntracks,_nsecs;
+			u32 _filetype,_ntrack,_speed,_cyls,_skip,_index;
+
+			int _add(char *c=NULL);
+			int _close();
+			int _reset();
+			int _readbit(int &);
+			int _writebit(int &);
+			int _decode(u32,void *);
+			int _step(int);
+
+			//protected:
+			u16 *_buf;
+			IStreamer *_streamer;
+			string _fn;
+			trackid _trackdata[2*83],*_track;
+			u64 _size;
+		} _floppies[4],*_floppy;
+
+		__fdc();
+		~__fdc();
+		virtual int Init(int,void *,void *,u32);
+		int reset();
+		int update(int);
+		int write(u32,u16);
+		int read(u32,u16 *);
+		virtual int Trigger(u32,u32,u32,void *);
+		int _add(char *c=NULL,int idx=-1);
+
+		protected:
+		int _write();
+		int _start();
+		int _end();
+		int _abort();
+
+		union{
+			struct{
+				unsigned int _dmaen:1;
+				unsigned int _dir:1;
+				unsigned int _step_pulse:1;
+				unsigned int _step:1;
+				unsigned int _side:1;
+				unsigned int _selected:4;
+				unsigned int _state:2;
+				unsigned int _on:1;
+				unsigned int _bit:4;
+				unsigned int _index:1;
+				unsigned int _sync:1;
+			};
+			u32 _status;
+		};
+		enum : u8{
+			ADKCON=0,DSKSYNC,DSKLEN,DMACON,DSKBYT,DMAVAL,DMAREG,LINE,DSKPT
+		};
+
+		private:
+		u16 _regs[12];
+		u8 *_ciaareg,*_ciabreg;
+		u32 _cycles;
+		IDevice *_ciaa,*_ciab;
+	} _fdc;
+
+	struct __cia : IBridge{
+		enum :u8 {A,B};
 
 		enum :u8 {
-			PRA = 0,
-			PRB,
-			DDRA,
-			DDRB,
-			TA_LO,
-			TA_HI,
-			TB_LO,
-			TB_HI,
-			TOD_10THS,
-			TOD_SEC,
-			TOD_MIN,
-			TOD_HR,
-			SDR,
-			ICR, IMR = ICR,
-			CRA,
-			CRB
+			PRA = 0,PRB,DDRA,DDRB,TA_LO,TA_HI,
+			TB_LO,TB_HI,TOD_10THS,
+			TOD_SEC,TOD_MIN,TOD_HR,	SDR,ICR,CRA,CRB,IMR,TOD_A10THS,TOD_ASEC,TOD_AMIN,TOD_AHR
 		};
-		enum{
+
+		struct __timer{
+			union{
+				struct{
+					unsigned int _start:1;
+					unsigned int _pbon:1;
+					unsigned int _omode:1;
+					unsigned int _rmode:1;
+					unsigned int _load:1;
+					unsigned int _inmode:1;
+					unsigned int _spmode:1;
+					unsigned int _todin:1;
+				} a;
+				struct{
+					unsigned int _start:1;
+					unsigned int _pbon:1;
+					unsigned int _omode:1;
+					unsigned int _rmode:1;
+					unsigned int _load:1;
+					unsigned int _inmode:2;
+					unsigned int _alarm:1;
+				} b;
+				struct{
+					unsigned int _start:1;
+					unsigned int _pbon:1;
+					unsigned int _omode:1;
+					unsigned int _rmode:1;
+					unsigned int _load:1;
+					unsigned int _inmode:2;
+				} c;
+				u8 _value;
+			} _control;
+			int reset();
+			int update(int cyc=0);
+			int start();
+
+			u16 _count,_load;
+			u32 _cycles,_freq;
+			u8 _idx;
+		} _timers[2];
+
+		struct __tod{
+			union{
+				struct{
+					unsigned int _enabled:1;
+					unsigned int _sync:1;
+					unsigned int _ae:1;
+					unsigned int _changed:1;
+					unsigned int _latch:1;
+				};
+				u32 _status;
+			};
+			u32 _count,_cycles,_freq,_alarm,_countl;
+			u8 reg[8];
+			int reset();
+			int enable(int);
+			int update(int cyc=0);
+			int alarm(u32);
+			int latch(int);
+		} _tod;
+
+		struct __sdr{
+			union{
+				struct{
+					unsigned int _enabled:1;
+					unsigned int _mode:1;
+				};
+				u32 _status;
+			};
+			int reset();
+			int update(int cyc=0);
+			int write(u8);
+			u8 _idx,_shift,_bits;
+			u32 _count,_cycles,_freq;
+		} _sdr;
+
+		__cia();
+		virtual int Trigger(u32,u32,u32,void *);
+		virtual int Connect(IDevice *,u32,u32);
+		virtual int Read(void *,u32,u32 *r=0){return -1;};
+		virtual int Write(void *,u32,u32 *r=0){return -1;};
+		int enterIRQ(u8);
+		int reset();
+		virtual int Init(int,void *,void *,u32);
+		int write(u32,u16);
+		int read(u32,u16 *);
+		int update(int);
+		int dump();
+		//private:
+			u16 *_ioreg;
+			u8 *_mem,_regs[25],_idx;
+		union{
+			class __fdc *fdc;
+			__keyboard *keyboard;
+		} _extdevices;
+		vector<IDevice *> _devices;
+	} _cia[2] ;
+
+	class __rs232 : public ADevice{
+		public:
+
+		enum:u16{
 			SERDATR_RXD   = 0x0800, // serial data
 			SERDATR_TSRE  = 0x1000, // transmit ready
 			SERDATR_TBE   = 0x2000, // transmit buffer empty
 			SERDATR_RBF   = 0x4000, // receive buffer full
 			SERDATR_OVRUN = 0x8000  // receive buffer overrun
 		};
+		union{
+			u32 _status;
+			struct{
+				unsigned int _enabled:1;
+				unsigned int _rx_state:4;
+				unsigned int _tx_state:4;
+			};
+		};
+
 		int reset();
-		int init(int,void *,void *);
-		virtual int write(u32,u16);
-		virtual int read(u32,u16 *);
+		int update(int cyc);
+		virtual int Init(int,void *,void *,u32 f);
+		int write(u32,u16);
+		int read(u32,u16 *);
+
+		u32 _cycles;
 		private:
-			u16 *_io_regs;
-			u8 *_mem,_regs[16];
-	} _cia[2];
+			u16 _rx_shift,_tx_shift;
+	} _rs232;
+
+	class __mouse : public ADevice,public vector<EVENTMSG>{
+		public:
+		union{
+			u8 _status;
+			struct{
+				unsigned int __a:8;
+				unsigned int _enabled:1;
+			};
+		};
+
+		int reset();
+		int update(int cyc);
+		virtual int Init(int,void *,void *,u32 f);
+		int write(u32,u16);
+		int read(u32,u16 *);
+
+		u32 _cycles,_buf[10];
+		private:
+			u8 *_ciaareg;
+		IDevice *_ciaa;
+	} _joy[2];
+
+	struct __potgo{
+		enum : u8{
+			GO,POT0,POT1,GOR
+		};
+
+		union{
+			u32 _status;
+			struct{
+				unsigned int _enabled:1;
+				unsigned int _changed:1;
+				unsigned int _wait:1;
+			};
+		};
+
+		int reset();
+		int update(int cyc);
+		int Init(int,void *,void *,u32 f);
+		int write(u32,u16);
+		int read(u32,u16 *);
+
+		u32 _cycles,_freq;
+		private:
+			u16 *_ioreg,_regs[5];
+			u8 *_mem;
+	} _potgo;
+
+	struct __keyboard : vector<EVENTMSG>{
+		union{
+			u32 _status;
+			struct{
+				unsigned int _init:2;
+				unsigned int _unread:2;
+				unsigned int _wait:4;
+			};
+		};
+
+		int reset();
+		int update(int cyc);
+		int Init(int,void *,void *,u32 f);
+		int read(u8 *p);
+		int _translate(u32 &,u32);
+		protected:
+		u32 _cycles,_freq;
+		u8 _key,*_ciaareg;
+		IDevice *_ciaa;
+	} _keyboard;
+
+protected:
+	s32 fn_write_io(u32,void *,void *,u32);
+	s32 fn_read_io(u32,void *,void *,u32);
 };
 
 };
